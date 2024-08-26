@@ -1,181 +1,191 @@
-"""Main Module for Generating Kubernetes Cluster Definitions from Templates"""
-
+"""Main Module"""
 import os
 import json
 import copy
 import argparse
-import yaml
 import shutil
 import logging
 from dotenv import load_dotenv
-
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+import yaml
 
 # Load environment variables from .env file
 load_dotenv()
 
-def get_env_variable(var_name: str) -> str:
-    """Fetches an environment variable and raises an error if it's not set."""
-    value = os.getenv(var_name)
-    if value is None:
-        raise EnvironmentError(f"Environment variable '{var_name}' is not set.")
-    return value
-
 # Get paths from environment variables
-input_file = get_env_variable("INPUT_PATH")
-mapping_file = get_env_variable("MAPPING_PATH")
-template_file = get_env_variable("TEMPLATE_PATH")
-output_dir = get_env_variable("OUTPUT_DIR")
+input_file = os.getenv("INPUT_PATH")
+mapping_file = os.getenv("MAPPING_PATH")
+template_file = os.getenv("TEMPLATE_PATH")
+output_dir = os.getenv("OUTPUT_DIR")
 
-def load_json(file_path: str) -> dict:
-    """Loads JSON data from a file."""
-    try:
-        with open(file_path, "r", encoding="utf-8") as file:
-            return json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        logging.error(f"Error loading JSON file '{file_path}': {e}")
-        raise
+logging.basicConfig(level=logging.INFO)
 
-def validate_and_apply_defaults(mapping: dict, inputs: dict) -> tuple:
-    """Validates input values based on the mapping and applies defaults."""
+# Load JSON data from a file
+def load_json(file_path):
+    with open(file_path, "r", encoding="utf-8") as file:
+        return json.load(file)
+
+# Validate input values based on the mapping and apply defaults
+def validate_and_apply_defaults(mapping, inputs):
     validated_data = {}
+
+    # Validate and apply defaults for common fields
+    for key, properties in mapping.get("common", {}).items():
+        value = inputs.get(key, None)
+        if properties["required"] and value is None:
+            raise ValueError(f"Mandatory field '{key}' is missing.")
+        validated_data[key] = value if value is not None else properties["default"]
+
+    # Validate and apply defaults for manifest-specific fields
     manifests_data = {}
-
-    try:
-        # Validate and apply defaults for common fields
-        for key, properties in mapping.get("common", {}).items():
+    for manifest, fields in mapping.get("manifests", {}).items():
+        manifest_data = {}
+        for key, properties in fields.items():
             value = inputs.get(key, None)
-            if properties.get("required") and value is None:
-                raise ValueError(f"Mandatory field '{key}' is missing.")
-            validated_data[key] = value if value is not None else properties.get("default")
-
-        # Validate and apply defaults for manifest-specific fields
-        for manifest, fields in mapping.get("manifests", {}).items():
-            manifest_data = {}
-            for key, properties in fields.items():
-                value = inputs.get(key, None)
-                if properties.get("required") and value is None:
-                    raise ValueError(f"Mandatory field '{key}' for manifest '{manifest}' is missing.")
-                manifest_data[key] = value if value is not None else properties.get("default")
-            # Store fields directly for replacement
-            manifests_data.update(manifest_data)
-    except KeyError as e:
-        logging.error(f"Error processing mapping: {e}")
-        raise
+            if properties["required"] and value is None:
+                raise ValueError(
+                    f"Mandatory field '{key}' for manifest '{manifest}' is missing."
+                )
+            manifest_data[key] = value if value is not None else properties["default"]
+        # Store fields directly for replacement
+        manifests_data.update(manifest_data)
 
     return validated_data, manifests_data
 
+# Replace placeholders in the YAML content
 def replace_placeholders(yaml_content, replacements):
-    """Replaces placeholders in the YAML content with actual values."""
     if isinstance(yaml_content, dict):
-        return {k: replace_placeholders(v, replacements) for k, v in yaml_content.items()}
-    elif isinstance(yaml_content, list):
+        return {
+            k: replace_placeholders(v, replacements) for k, v in yaml_content.items()
+        }
+    if isinstance(yaml_content, list):
         return [replace_placeholders(i, replacements) for i in yaml_content]
-    elif isinstance(yaml_content, str):
+    if isinstance(yaml_content, str):
         for key, value in replacements.items():
             placeholder = f"${{{key}}}"
             if placeholder in yaml_content:
-                logging.info(f"Replacing {placeholder} with {value}")
+                logging.info("Replacing %s with %s", placeholder, value)
             yaml_content = yaml_content.replace(placeholder, str(value))
         return yaml_content
-    else:
-        return yaml_content
+    return yaml_content
 
-def update_yaml_manifest(yaml_template: str, validated_data: dict, manifests_data: dict) -> str:
-    """Updates the YAML manifest with the validated input values."""
+# Update the YAML manifest with the validated input values
+def update_yaml_manifest(yaml_template, validated_data, manifests_data):
+    # Load all YAML documents from the template
     yaml_docs = yaml.safe_load_all(yaml_template)
+
+    # Prepare a list to store the updated documents
     updated_docs = []
 
     for doc in yaml_docs:
+        # Make a deep copy of the current document to avoid modifying the original template
         updated_doc = copy.deepcopy(doc)
+
+        # Combine validated_data and document-specific manifest data
         replacements = validated_data.copy()
         replacements.update(manifests_data)
+
+        # Replace placeholders in the copied document
         updated_doc = replace_placeholders(updated_doc, replacements)
+
+        # Add the updated document to the list
         updated_docs.append(updated_doc)
 
-    return "\n---\n".join([yaml.safe_dump(doc) for doc in updated_docs])
+    # Combine all updated documents into a single string
+    updated_yaml = "\n---\n".join([yaml.safe_dump(doc) for doc in updated_docs])
 
-def copy_artifact_directories(artifact_dir: str, clusters_dirs: list):
+    return updated_yaml
+
+# Copy directories from Cluster-artifacts to the workload folders
+def copy_artifact_directories(artifact_dir, clusters_dirs):
     """
     Copies Config, Network, and Policy folders from the artifact directory
     to the workload folders of specified cluster directories.
     
     Args:
-        artifact_dir (str): Path to the Cluster-artifacts directory.
-        clusters_dirs (list): List of cluster directories to copy folders to.
+    artifact_dir (str): Path to the Cluster-artifacts directory.
+    clusters_dirs (list): List of cluster directories to copy folders to.
     """
+    # Directories to be copied from the artifact_dir
     folders_to_copy = ['Config', 'Network', 'Policy']
 
     for cluster_dir in clusters_dirs:
-        workload_folder = os.path.join(cluster_dir, 'Workload', 'Workload-01')
+        workload_folder = os.path.join(cluster_dir, 'Workload/Workload-01')
         
         if not os.path.exists(workload_folder):
-            logging.warning(f"Workload folder does not exist: {workload_folder}")
+            logging.warning("Workload folder does not exist: %s", workload_folder)
             continue
 
         for folder in folders_to_copy:
             src_path = os.path.join(artifact_dir, folder)
             dest_path = os.path.join(workload_folder, folder)
 
-            try:
-                if os.path.exists(src_path):
-                    if os.path.exists(dest_path):
-                        shutil.rmtree(dest_path)  # Remove existing directory
-                    shutil.copytree(src_path, dest_path)
-                    logging.info(f"Copied {folder} from {src_path} to {dest_path}")
-                else:
-                    logging.warning(f"Source folder does not exist: {src_path}")
-            except (OSError, shutil.Error) as e:
-                logging.error(f"Error copying {folder} from {src_path} to {dest_path}: {e}")
+            if os.path.exists(src_path):
+                if os.path.exists(dest_path):
+                    shutil.rmtree(dest_path)  # Remove existing directory
+                shutil.copytree(src_path, dest_path)
+                logging.info("Copied %s from %s to %s", folder, src_path, dest_path)
+            else:
+                logging.warning("Source folder does not exist: %s", src_path)
 
+# Main function to run the program
 def main():
-    """Main function to run the program."""
-    parser = argparse.ArgumentParser(description="Generate Kubernetes cluster definitions from templates.")
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description="Generate Kubernetes cluster definitions from templates."
+    )
     parser.add_argument("--input", required=True, help="Path to the input JSON file")
-    parser.add_argument("--mapping", required=True, help="Path to the mapping JSON file")
-    parser.add_argument("--template", required=True, help="Path to the YAML template file")
+    parser.add_argument(
+        "--mapping", required=True, help="Path to the mapping JSON file"
+    )
+    parser.add_argument(
+        "--template", required=True, help="Path to the YAML template file"
+    )
 
     args = parser.parse_args()
 
+    # Load the mapping and input data
     mapping = load_json(args.mapping)
     inputs = load_json(args.input)
 
+    # Validate inputs and apply defaults
     validated_data, manifests_data = validate_and_apply_defaults(mapping, inputs)
 
-    logging.debug(f"Validated Data: {validated_data}")
-    logging.debug(f"Manifests Data: {manifests_data}")
+    # Debugging output
+    logging.info("Validated Data: %s", validated_data)
+    logging.info("Manifests Data: %s", manifests_data)
 
+    # Load the YAML template
     with open(args.template, "r", encoding="utf-8") as yaml_file:
         yaml_template = yaml_file.read()
 
+    # Update the YAML template with validated values
     updated_yaml = update_yaml_manifest(yaml_template, validated_data, manifests_data)
 
+    # Ensure the output directory exists
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # Generate dynamic output file name based on input data
-    cluster_name = validated_data.get("cluster_name")
-    environment = validated_data.get("env")
-    if not cluster_name or not environment:
-        logging.error("Both 'cluster_name' and 'env' must be specified in the input JSON file.")
-        raise ValueError("Both 'cluster_name' and 'env' must be specified.")
+    # Dynamically generate output filename based on input JSON data
+    cluster_name = validated_data.get("cluster_name", "default")
+    environment = validated_data.get("environment", "default")
+    output_file_name = f"{cluster_name}-{environment}-definition.yaml"
+    output_file_path = os.path.join(output_dir, output_file_name)
 
-    output_file_name = f"{cluster_name}_{environment}_definition.yaml"
-    output_file = os.path.join(output_dir, output_file_name)
-
-    with open(output_file, "w", encoding="utf-8") as updated_yaml_file:
+    # Save the updated YAML manifest
+    with open(output_file_path, "w", encoding="utf-8") as updated_yaml_file:
         updated_yaml_file.write(updated_yaml)
 
-    logging.info(f"Updated YAML manifest saved to '{output_file}'.")
+    logging.info("Updated YAML manifest saved to '%s'.", output_file_path)
 
+    # Define the artifact directory and cluster directories
     artifact_dir = os.path.join(os.getcwd(), "Cluster-artifacts")
     clusters_dirs = [
-        os.path.join(os.getcwd(), "Clusters-Dev", "AKS"),
-        os.path.join(os.getcwd(), "Clusters-NonProd", "AKS"),
-        os.path.join(os.getcwd(), "Clusters-Prod", "AKS"),
+        os.path.join(os.getcwd(), "Clusters-Dev/AKS"),
+        os.path.join(os.getcwd(), "Clusters-NonProd/AKS"),
+        os.path.join(os.getcwd(), "Clusters-Prod/AKS"),
     ]
 
+    # Call the function to copy directories
     copy_artifact_directories(artifact_dir, clusters_dirs)
 
 if __name__ == "__main__":
