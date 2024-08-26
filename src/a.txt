@@ -1,0 +1,130 @@
+import json
+import yaml
+import copy
+import os
+from dotenv import load_dotenv
+import argparse
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Get paths from environment variables
+input_file = os.getenv("INPUT_PATH")
+mapping_file = os.getenv("MAPPING_PATH")
+template_file = os.getenv("TEMPLATE_PATH")
+output_dir = os.getenv("OUTPUT_DIR", "Manifests")  # Default to Manifests folder
+
+# Load JSON data from a file
+def load_json(file_path):
+    with open(file_path, 'r') as file:
+        return json.load(file)
+
+# Validate input values based on the mapping and apply defaults
+def validate_and_apply_defaults(mapping, inputs):
+    validated_data = {}
+    
+    # Validate and apply defaults for common fields
+    for key, properties in mapping.get('common', {}).items():
+        value = inputs.get(key, None)
+        if properties['required'] and value is None:
+            raise ValueError(f"Mandatory field '{key}' is missing.")
+        validated_data[key] = value if value is not None else properties['default']
+    
+    # Validate and apply defaults for manifest-specific fields
+    manifests_data = {}
+    for manifest, fields in mapping.get('manifests', {}).items():
+        manifest_data = {}
+        for key, properties in fields.items():
+            value = inputs.get(key, None)
+            if properties['required'] and value is None:
+                raise ValueError(f"Mandatory field '{key}' for manifest '{manifest}' is missing.")
+            manifest_data[key] = value if value is not None else properties['default']
+        # Store fields directly for replacement
+        manifests_data.update(manifest_data)
+    
+    return validated_data, manifests_data
+
+# Replace placeholders in the YAML content
+def replace_placeholders(yaml_content, replacements):
+    if isinstance(yaml_content, dict):
+        return {k: replace_placeholders(v, replacements) for k, v in yaml_content.items()}
+    elif isinstance(yaml_content, list):
+        return [replace_placeholders(i, replacements) for i in yaml_content]
+    elif isinstance(yaml_content, str):
+        for key, value in replacements.items():
+            placeholder = f"${{{key}}}"
+            if placeholder in yaml_content:
+                print(f"Replacing {placeholder} with {value}")
+            yaml_content = yaml_content.replace(placeholder, str(value))
+        return yaml_content
+    else:
+        return yaml_content
+
+# Update the YAML manifest with the validated input values
+def update_yaml_manifest(yaml_template, validated_data, manifests_data):
+    # Load all YAML documents from the template
+    yaml_docs = yaml.safe_load_all(yaml_template)
+
+    # Prepare a list to store the updated documents
+    updated_docs = []
+
+    for doc in yaml_docs:
+        # Make a deep copy of the current document to avoid modifying the original template
+        updated_doc = copy.deepcopy(doc)
+
+        # Combine validated_data and document-specific manifest data
+        replacements = validated_data.copy()
+        replacements.update(manifests_data)
+
+        # Replace placeholders in the copied document
+        updated_doc = replace_placeholders(updated_doc, replacements)
+
+        # Add the updated document to the list
+        updated_docs.append(updated_doc)
+
+    # Combine all updated documents into a single string
+    updated_yaml = "\n---\n".join([yaml.safe_dump(doc) for doc in updated_docs])
+    
+    return updated_yaml
+
+# Main function to run the program
+def main():
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description='Generate Kubernetes cluster definitions from templates.')
+    parser.add_argument('--input', required=True, help='Path to the input JSON file')
+    parser.add_argument('--mapping', required=True, help='Path to the mapping JSON file')
+    parser.add_argument('--template', required=True, help='Path to the YAML template file')
+    
+    args = parser.parse_args()
+
+    # Load the mapping and input data
+    mapping = load_json(args.mapping)
+    inputs = load_json(args.input)
+    
+    # Validate inputs and apply defaults
+    validated_data, manifests_data = validate_and_apply_defaults(mapping, inputs)
+    
+    # Debugging output
+    print(f"Validated Data: {validated_data}")
+    print(f"Manifests Data: {manifests_data}")
+    
+    # Load the YAML template
+    with open(args.template, 'r') as yaml_file:
+        yaml_template = yaml_file.read()
+    
+    # Update the YAML template with validated values
+    updated_yaml = update_yaml_manifest(yaml_template, validated_data, manifests_data)
+    
+    # Ensure the output directory exists
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    # Save the updated YAML manifest
+    output_file = os.path.join(output_dir, 'definition.yaml')
+    with open(output_file, 'w') as updated_yaml_file:
+        updated_yaml_file.write(updated_yaml)
+
+    print(f"Updated YAML manifest saved to '{output_file}'.")
+
+if __name__ == "__main__":
+    main()
