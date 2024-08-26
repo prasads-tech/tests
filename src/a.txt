@@ -1,1 +1,41 @@
-hi
+name: Auto Trigger Pipeline
+
+on:
+  push:
+    paths:
+      - 'Clusters-Dev/AKS/Input/input.json'
+      - 'Clusters-NonProd/AKS/Input/input.json'
+      - 'Clusters-Prod/AKS/Input/input.json'
+    branches:
+      - main
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Execute main.py
+        run: python Automation/AKS/Workload-Cluster/main.py --input Clusters-Dev/AKS/Input/input.json --mapping Cluster-artifacts/Templates/FieldMapping.json --template Cluster-artifacts/Templates/AKS-templates01.yaml
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          commit-message: Update workload configurations based on input.json
+          branch: auto-update-config
+          title: Update Workload Configurations
+          body: |
+            This PR updates the workload configurations by copying the latest changes from the Cluster-artifacts directory.
+          base: main
