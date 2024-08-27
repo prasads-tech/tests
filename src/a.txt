@@ -1,3 +1,31 @@
+#!/bin/bash
+
+# Load environment variables from .env file
+set -o allexport
+source Cluster-Management-Repo-dev/.env
+set +o allexport
+
+# Run the Python script with the loaded environment variables
+python Cluster-Management-Repo-dev/Automation/AKS/Workload-Cluster/main.py --input "$INPUT_PATH" --mapping "$MAPPING_PATH" --template "$TEMPLATE_PATH"
+
+# Check if there are any changes to commit
+if [[ `git status --porcelain` ]]; then
+  # Configure Git
+  git config --local user.email "action@github.com"
+  git config --local user.name "GitHub Action"
+
+  # Commit and push changes
+  git add .
+  git commit -m "Automated output update"
+  git push origin HEAD:automated/output-update
+
+  # Create a pull request using GitHub CLI
+  gh pr create --title "Automated output update" --body "This PR is automatically created by a GitHub Action." --base main --head automated/output-update
+else
+  echo "No changes detected, skipping commit and PR creation."
+fi
+
+
 name: Auto Trigger Pipeline
 
 on:
