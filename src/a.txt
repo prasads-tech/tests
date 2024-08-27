@@ -1,3 +1,42 @@
+import shutil
+
+def generate_output(validated_data):
+    """Dynamically generate output filename based on input JSON data."""
+    cluster_name = validated_data.get("CLUSTER_NAME", "default")
+    environment = validated_data.get("ENV_NAME", "default")
+    base_output_dir = os.getenv("OUTPUT_DIR", "Manifests")  # Output directory from environment variable
+
+    # Define the output directory path
+    output_dir = os.path.join(base_output_dir, f"{cluster_name}--{environment}")
+
+    # Ensure the output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Define the output file name
+    output_file_name = f"{cluster_name}-{environment}-definition.yaml"
+    output_file_path = os.path.join(output_dir, output_file_name)
+
+    # Copy required folders from Cluster-artifacts to the output directory
+    cluster_artifacts_path = os.getenv("CLUSTER_ARTIFACTS_PATH", "Cluster-artifacts")
+    required_folders = ["Config", "NetworkPolicies-Global", "SecurityPolicies"]
+    
+    for folder in required_folders:
+        source_folder = os.path.join(cluster_artifacts_path, folder)
+        destination_folder = os.path.join(output_dir, folder)
+        if os.path.exists(source_folder):
+            if os.path.exists(destination_folder):
+                shutil.rmtree(destination_folder)  # Remove existing directory to avoid conflicts
+            shutil.copytree(source_folder, destination_folder)
+
+    return output_file_path
+
+
+
+
+
+
+
+
 # Function to generate the output directory and file name
 def generate_output(validated_data):
     """Dynamically generate output filename based on input JSON data."""
