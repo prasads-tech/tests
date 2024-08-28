@@ -1,4 +1,27 @@
-      - name: Find and print new folder
+- name: Find and print new folder
+        run: |
+          # Check if this is the first commit
+          if [ $(git rev-list --count HEAD) -eq 1 ]; then
+            echo "This is the first commit; no previous commits to compare."
+          else
+            # Get the list of newly added folders
+            NEW_FOLDERS=$(git diff --name-only --diff-filter=A HEAD~1 HEAD | grep 'Clusters-Dev/AKS/Workload/' | cut -d'/' -f2 | sort -u)
+            
+            if [ -z "$NEW_FOLDERS" ]; then
+              echo "No new folders added."
+            else
+              for FOLDER in $NEW_FOLDERS; do
+                echo "New folder detected: $FOLDER"
+              done
+            fi
+          fi
+
+
+
+
+
+
+- name: Find and print new folder
         run: |
           # Get the list of newly added folders
           NEW_FOLDERS=$(git diff --name-only --diff-filter=A HEAD~1 HEAD | grep 'main-folder/' | cut -d'/' -f2 | sort -u)
