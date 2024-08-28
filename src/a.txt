@@ -1,3 +1,35 @@
+name: Detect New Folder in Workload
+
+on:
+  push:
+    paths:
+      - 'Clusters-Dev/AKS/Workload/**'  # This triggers the workflow on changes in the specified path
+
+jobs:
+  detect-new-folder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: List new folders
+        run: |
+          # List all directories in Clusters-Dev/AKS/Workload
+          NEW_FOLDERS=$(git diff --name-status ${{ github.event.before }} ${{ github.sha }} | grep 'Clusters-Dev/AKS/Workload/' | awk '/^A/{print $2}' | xargs -I {} basename {})
+
+          # Print the names of the new folders
+          if [ -z "$NEW_FOLDERS" ]; then
+            echo "No new folders detected."
+          else
+            echo "New folders detected:"
+            echo "$NEW_FOLDERS"
+          fi
+
+
+
+
+
+
 name: Detect and Print New Folder
 
 on:
