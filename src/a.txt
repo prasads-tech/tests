@@ -1,1 +1,22 @@
-test
+      - name: Find new folders
+        id: find_folders
+        run: |
+          git fetch origin main
+          new_folders=$(git diff --name-status HEAD^ HEAD | grep '^A.*\/$' | awk '{print $2}')
+          echo "Found folders: $new_folders"
+          echo "new_folders=$new_folders" >> $GITHUB_ENV
+
+      - name: Check if new folders are created
+        if: ${{ env.new_folders != '' }}
+        run: |
+          echo "New folder(s) detected: ${{ env.new_folders }}"
+
+      - name: Parse folder name and run pipeline
+        if: ${{ env.new_folders != '' }}
+        run: |
+          for folder in ${{ env.new_folders }}; do
+            folder_name=$(basename $folder)
+            echo "Processing folder: $folder_name"
+            # Run your pipeline or script here, passing folder_name as an argument or environment variable
+            # For example: ./run_pipeline.sh $folder_name (Narresh run the cmd here by replacing hardcode values.)
+          done
