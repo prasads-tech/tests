@@ -1,3 +1,17 @@
+name: Trigger Pipeline on Folder Creation
+
+on:
+  push:
+    paths:
+      - 'Clusters-Dev/**' # Adjust the path pattern based on where new folders will be created
+
+jobs:
+  detect-new-folder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
       - name: Find new folders
         id: find_folders
         run: |
@@ -18,5 +32,5 @@
             folder_name=$(basename $folder)
             echo "Processing folder: $folder_name"
             # Run your pipeline or script here, passing folder_name as an argument or environment variable
-            # For example: ./run_pipeline.sh $folder_name (Narresh run the cmd here by replacing hardcode values.)
+            # For example: ./run_pipeline.sh $folder_name
           done
