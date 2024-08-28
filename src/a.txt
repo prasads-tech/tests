@@ -1,3 +1,24 @@
+      - name: List folders in Myone
+        id: list_folders
+        run: |
+          # List all directories inside the Myone folder
+          FOLDERS=$(ls -d Myone/*/)
+          echo "Detected folders: $FOLDERS"
+          
+          # Get the name of the latest added folder by modification time
+          NEW_FOLDER=$(ls -dt Myone/*/ | head -n 1)
+          NEW_FOLDER_NAME=$(basename "$NEW_FOLDER")
+          echo "Newly added folder: $NEW_FOLDER_NAME"
+
+          # Set the output variable for GitHub Actions
+          echo "new_folder_name=$NEW_FOLDER_NAME" >> $GITHUB_OUTPUT
+
+      - name: Output the newly added folder name
+        run: |
+          echo "The newly added folder is: ${{ steps.list_folders.outputs.new_folder_name }}"
+
+
+
 name: Detect New Folder in Workload
 
 on:
