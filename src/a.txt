@@ -1,3 +1,36 @@
+name: Detect and Print New Folder
+
+on:
+  push:
+    paths:
+      - 'Clusters-Dev/AKS/Workload/**'  # This will trigger the workflow for any changes under this path
+
+jobs:
+  print-new-folder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+
+      - name: Find and print new folder
+        run: |
+          # List all the directories in 'Clusters-Dev/AKS/Workload' and store them
+          CURRENT_FOLDERS=$(ls Clusters-Dev/AKS/Workload)
+
+          # Get the latest commit that modified 'Clusters-Dev/AKS/Workload'
+          LATEST_COMMIT=$(git log -1 --format=format:%H --full-diff Clusters-Dev/AKS/Workload)
+
+          # List directories added in the latest commit
+          NEW_FOLDERS=$(git diff-tree --no-commit-id --name-status -r $LATEST_COMMIT | grep 'A' | grep 'Clusters-Dev/AKS/Workload/' | cut -f2 | cut -d'/' -f4)
+
+          if [ -z "$NEW_FOLDERS" ]; then
+            echo "No new folders added."
+          else
+            for FOLDER in $NEW_FOLDERS; do
+              echo "New folder detected: $FOLDER"
+            done
+          fi
+
 - name: Find and print new folder
         run: |
           # Check if this is the first commit
