@@ -1,3 +1,22 @@
+      - name: Find and print new folder
+        run: |
+          # Get the list of newly added folders
+          NEW_FOLDERS=$(git diff --name-only --diff-filter=A HEAD~1 HEAD | grep 'main-folder/' | cut -d'/' -f2 | sort -u)
+          
+          if [ -z "$NEW_FOLDERS" ]; then
+            echo "No new folders added."
+          else
+            for FOLDER in $NEW_FOLDERS; do
+              echo "New folder detected: $FOLDER"
+            done
+          fi
+
+
+
+
+
+
+
 name: Trigger Pipeline on Folder Creation
 
 on:
