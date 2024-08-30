@@ -1,3 +1,11 @@
+ - name: Get changed JSON file
+        id: get_changed_file
+        run: |
+          INPUT_PATH=$(echo "${{ toJson(github.event.head_commit.modified) }}" | jq -r '.[] | select(. | test("Clusters-Dev/AKS/Input/.*\\.json"))')
+          echo "Changed JSON file path: $INPUT_PATH"
+          echo "INPUT_PATH=$INPUT_PATH" >> $GITHUB_ENV
+        shell: bash
+
 - name: Get changed JSON file
         id: get_changed_file
         run: |
