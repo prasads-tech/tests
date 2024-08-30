@@ -1,4 +1,86 @@
- - name: Get changed JSON file
+name: V1
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Clusters-Dev/AKS/Input/*.json'
+
+jobs:
+  trigger_on:
+    runs-on: ubuntu-latest
+
+    env:
+      OUTPUT_DIR: "./Clusters-Dev/AKS/Workload"
+      MAPPING_PATH: "./Cluster-artifacts/Templates/FieldMapping.json"
+      TEMPLATE_PATH: "./Cluster-artifacts/Templates/AKS-templates01.yaml"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: List changed JSON files
+        id: list_json_files
+        run: |
+          # List all JSON files that have been modified or added
+          JSON_FILES=$(ls -dt Clusters-Dev/AKS/Input/*.json 2>/dev/null || true)
+          echo "Detected JSON files: $JSON_FILES"
+
+          # Get the most recently modified JSON file
+          NEW_JSON_FILE=$(ls -dt Clusters-Dev/AKS/Input/*.json 2>/dev/null | head -n 1 || true)
+          echo "Newly modified JSON file: $NEW_JSON_FILE"
+
+          # Set the output for GitHub Actions
+          echo "INPUT_PATH=$NEW_JSON_FILE" >> $GITHUB_ENV
+        shell: bash
+
+      - name: Run main script
+        if: env.INPUT_PATH != ''
+        run: |
+          python Automation/AKS/Workload-Cluster/main.py \
+            --input "${INPUT_PATH}" \
+            --mapping "${MAPPING_PATH}" \
+            --template "${TEMPLATE_PATH}"
+
+      - name: Commit and Push Manifests
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add ${{ env.OUTPUT_DIR }}/*
+          if git diff-index --quiet HEAD --; then
+            echo "No changes to commit."
+          else
+            git commit -m "generated manifests"
+            git push
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+
+
+
+
+- name: Get changed JSON file
         id: get_changed_file
         run: |
           INPUT_PATH=$(echo "${{ toJson(github.event.head_commit.modified) }}" | jq -r '.[] | select(. | test("Clusters-Dev/AKS/Input/.*\\.json"))')
