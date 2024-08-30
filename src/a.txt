@@ -1,3 +1,18 @@
+- name: Commit and Push Manifests
+  env:
+    PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+  run: |
+    git config --global user.name "your-username"
+    git config --global user.email "your-email@example.com"
+    git add ${{ env.OUTPUT_DIR }}/*
+    if git diff-index --quiet HEAD --; then
+      echo "No changes to commit."
+    else
+      git commit -m "generated manifests"
+      git push https://x-access-token:${{ env.PAT_TOKEN }}@github.com/<your-username>/<your-repo>.git HEAD:main
+    fi
+
+
 name: Automation Pipeline
 
 on:
