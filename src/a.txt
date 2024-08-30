@@ -1,3 +1,39 @@
+def generate_output(validated_data):
+    """Dynamically generate output filename based on input JSON data."""
+    cluster_name = validated_data.get("CLUSTER_NAME")
+    environment = validated_data.get("ENV_NAME")
+    base_output_dir = os.getenv("OUTPUT_DIR")
+
+    # Define the output directory path
+    output_dirs = os.path.join(base_output_dir, f"{cluster_name}-{environment}")
+    
+    # Ensure the output directory exists
+    os.makedirs(output_dirs, exist_ok=True)
+
+    # Define the required folders to be created
+    required_folders = ["Config-Global", "NetworkPolicies-Global", "SecurityPolicies-Global"]
+
+    # Iterate through required folders to create them and add a sample text file
+    for folder in required_folders:
+        destination_folder = os.path.join(output_dirs, folder)
+        
+        # Create the directory if it doesn't exist
+        os.makedirs(destination_folder, exist_ok=True)
+
+        # Add a sample text file inside the created folder
+        sample_file_path = os.path.join(destination_folder, "sample.txt")
+        with open(sample_file_path, "w", encoding="utf-8") as sample_file:
+            sample_file.write(f"This is a sample file for {folder}.")
+
+    # Define the output file name inside the output directory
+    output_file_name = f"{cluster_name}-{environment}-definition.yaml"
+    output_file_path = os.path.join(output_dirs, output_file_name)
+
+    # Return the correct output path
+    return output_file_path
+
+
+
 - name: Commit and Push Manifests
   env:
     PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
