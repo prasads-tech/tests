@@ -1,28 +1,26 @@
+- name: Trigger new pipeline using GitHub App
+  env:
+    APP_ID: ${{ secrets.GITHUB_APP_ID }}
+    PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
+  run: |
+    # Install necessary tools
+    pip install PyJWT
 
+    # Generate JWT token using GitHub App private key
+    echo "Generating JWT token..."
+    JWT_TOKEN=$(python3 -c "
+import jwt, time
+payload = {
+  'iat': int(time.time()),
+  'exp': int(time.time()) + 600,
+  'iss': '${APP_ID}'
+}
+private_key = '''${PRIVATE_KEY}'''
+print(jwt.encode(payload, private_key, algorithm='RS256'))
+")
 
-      - name: Trigger new pipeline using GitHub App
-        env:
-          APP_ID: ${{ secrets.GITHUB_APP_ID }}
-          PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
-        run: |
-          # Install necessary tools
-          pip install PyJWT
-
-          # Generate JWT token using GitHub App private key
-          echo "Generating JWT token..."
-          JWT_TOKEN=$(python3 -c "
-            import jwt, time
-            payload = {
-            'iat': int(time.time()),
-            'exp': int(time.time()) + 600,
-            'iss': '${APP_ID}'
-            }
-            private_key = '''${PRIVATE_KEY}'''
-            print(jwt.encode(payload, private_key, algorithm='RS256'))
-            ")
-
-          echo "Triggering new workflow via API..."
-          curl -X POST -H "Authorization: Bearer $JWT_TOKEN" \
-               -H "Accept: application/vnd.github.v3+json" \
-               https://api.github.com/repos/ValueMomentum-Inc/GEICOPOC-Spec/dispatches \
-               -d '{"event_type": "Automation Pipeline"}'
+    echo "Triggering new workflow via API..."
+    curl -X POST -H "Authorization: Bearer $JWT_TOKEN" \
+         -H "Accept: application/vnd.github.v3+json" \
+         https://api.github.com/repos/ValueMomentum-Inc/GEICOPOC-Spec/dispatches \
+         -d '{"event_type": "trigger_new_pipeline"}'
