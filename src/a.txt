@@ -1,31 +1,14 @@
-- name: Trigger new pipeline using GitHub App
-  env:
-    APP_ID: ${{ secrets.GITHUB_APP_ID }}
-    PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
-  run: |
-    # Install necessary tools
-    pip install PyJWT
-
-    # Generate JWT token using GitHub App private key
-    echo "Generating JWT token..."
-    JWT_TOKEN=$(python3 -c "
-import jwt, time
-payload = {
-  'iat': int(time.time()),
-  'exp': int(time.time()) + 600,
-  'iss': '${APP_ID}'
-}
-private_key = '''${PRIVATE_KEY}'''
-print(jwt.encode(payload, private_key, algorithm='RS256'))
-")
-
-    echo "Triggering new workflow via API..."
-    curl -X POST -H "Authorization: Bearer $JWT_TOKEN" \
-         -H "Accept: application/vnd.github.v3+json" \
-         https://api.github.com/repos/ValueMomentum-Inc/GEICOPOC-Spec/dispatches \
-         -d '{"event_type": "trigger_new_pipeline"}'
-
-
+      - name: Commit and Push Manifests
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git add ${{ env.OUTPUT_DIR }}/*
+          if git diff-index --quiet HEAD --; then
+            echo "No changes to commit."
+          else
+            git commit -m "Generated manifests"
+            git push
+          fi
 
       - name: Fetch and Check for Changes
         id: check_files
@@ -48,4 +31,45 @@ print(jwt.encode(payload, private_key, algorithm='RS256'))
           touch .trigger/trigger-file.txt
           git add .trigger/trigger-file.txt
           git commit -m "Add trigger file for second workflow"
+          git push
+
+
+
+name: Scheduled Check for Trigger File
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # Check every 30 minutes
+  workflow_dispatch:
+
+jobs:
+  check_trigger_file:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Check for Trigger File
+        id: check_file
+        run: |
+          if [ -f ".trigger/trigger-file.txt" ]; then
+            echo "Trigger file found. Performing actions..."
+            echo "TRIGGER_FOUND=true" >> $GITHUB_ENV
+          else
+            echo "No trigger file found."
+            echo "TRIGGER_FOUND=false" >> $GITHUB_ENV
+          fi
+
+      - name: Perform Actions
+        if: env.TRIGGER_FOUND == 'true'
+        run: |
+          echo "Performing additional actions based on trigger file..."
+          # Insert the commands or scripts you want to run here
+          # For example:
+          # python scripts/another-script.py
+          # Cleanup trigger file after actions
+          rm .trigger/trigger-file.txt
+          git add .trigger/trigger-file.txt
+          git commit -m "Cleanup trigger file after actions"
           git push
