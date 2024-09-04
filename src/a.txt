@@ -1,4 +1,20 @@
-      - name: Commit and Push Manifests
+ - name: Create and Push Tag
+        if: env.INPUT_PATH != ''
+        run: |
+          TAG_NAME="trigger-$(date +%Y%m%d%H%M%S)"
+          git tag $TAG_NAME
+          git push origin $TAG_NAME
+
+
+
+on:
+  push:
+    tags:
+      - 'trigger-*'
+
+
+
+- name: Commit and Push Manifests
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
