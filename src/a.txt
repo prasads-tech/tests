@@ -1,6 +1,42 @@
 - name: List changed JSON files
   id: list_json_files
   run: |
+    # Fetch the list of changed JSON files
+    # Use `git diff` for the most recent commit, but handle initial commits gracefully
+    if [ -n "$(git rev-parse --is-inside-work-tree 2>/dev/null)" ]; then
+      # Fetch the base commit if it's not the initial commit
+      BASE_COMMIT=$(git rev-parse HEAD~1 || echo "HEAD")
+      JSON_FILES=$(git diff --name-only $BASE_COMMIT HEAD | grep '^Clusters-Dev/AKS/Input/.*\.json$' || true)
+    else
+      JSON_FILES=""
+    fi
+
+    echo "Detected JSON files: $JSON_FILES"
+
+    # Check if any JSON files were detected
+    if [ -n "$JSON_FILES" ]; then
+      # Get the most recently modified file
+      NEW_JSON_FILE=$(echo "$JSON_FILES" | xargs -I {} stat -c '%Y %n' {} | sort -nr | head -n 1 | cut -d' ' -f2)
+      echo "Newly modified JSON file: $NEW_JSON_FILE"
+
+      # Set the output for GitHub Actions
+      echo "INPUT_PATH=$NEW_JSON_FILE" >> $GITHUB_ENV
+    else
+      echo "No JSON files detected."
+      echo "INPUT_PATH=" >> $GITHUB_ENV
+    fi
+  shell: bash
+
+
+
+
+
+
+
+
+- name: List changed JSON files
+  id: list_json_files
+  run: |
     # Fetch a list of JSON files that have been modified or added in the most recent commit
     JSON_FILES=$(git diff --name-only HEAD^ HEAD | grep '^Clusters-Dev/AKS/Input/.*\.json$' || true)
     echo "Detected JSON files: $JSON_FILES"
