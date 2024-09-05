@@ -1,297 +1,179 @@
-name: Automation Pipeline
+import os
+import json
+import copy
+import argparse
+import logging
+from dotenv import load_dotenv
+import yaml
 
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - "Clusters-Dev/AKS/Input/*.json"
+# Load environment variables from .env file
+load_dotenv()
 
-jobs:
-  trigger_on:
-    runs-on: ubuntu-latest
+# Get paths from environment variables
+input_file = os.getenv("INPUT_PATH")
+mapping_file = os.getenv("MAPPING_PATH")
+template_file = os.getenv("TEMPLATE_PATH")
+output_dir = os.getenv("OUTPUT_DIR")
 
-    env:
-      OUTPUT_DIR: ${{ secrets.OUTPUT_DIR }}
-      MAPPING_PATH: ${{ secrets.MAPPING_PATH }}
-      TEMPLATE_PATH: ${{ secrets.TEMPLATE_PATH }}
+logging.basicConfig(level=logging.INFO)
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+def load_json(file_path: str) -> dict:
+    """Loads JSON data from a file."""
+    try:
+        with open(file_path, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logging.error("Error loading %s JSON file with %s", file_path, e)
+        raise
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.9"
+def validate_and_apply_defaults(mapping: dict, inputs: dict) -> tuple:
+    """Validates input values based on the mapping and applies defaults."""
+    validated_data = {}
 
-      - name: Cache Python dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+    # Validate and apply defaults for common fields
+    for key, properties in mapping.get("common", {}).items():
+        value = inputs.get(key, None)
+        if properties["required"] and value is None:
+            raise ValueError(f"Mandatory field '{key}' is missing.")
+        validated_data[key] = value if value is not None else properties["default"]
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+    # Validate and apply defaults for manifest-specific fields
+    manifests_data = {}
+    if "manifests" in mapping:
+        for manifest, fields in mapping["manifests"].items():
+            manifest_data = {}
+            for key, properties in fields.items():
+                value = inputs.get(key, None)
+                if properties["required"] and value is None:
+                    raise ValueError(
+                        f"Mandatory field '{key}' for manifest '{manifest}' is missing."
+                    )
+                manifest_data[key] = value if value is not None else properties["default"]
+            # Store fields directly for replacement
+            manifests_data.update(manifest_data)
 
-      - name: List changed JSON files
-        id: list_json_files
-        run: |
-          # Change to the directory containing JSON files
-          cd Clusters-Dev/AKS/Input/
-          
-          # Find the most recently modified or added JSON file
-          NEW_JSON_FILE=$(find . -maxdepth 1 -name '*.json' -print0 | xargs -0 stat -c '%Y %n' | sort -nr | head -n 1 | cut -d' ' -f2)
-          
-          echo "Newly modified or added JSON file: $NEW_JSON_FILE"
-          
-          # Set the environment variable for GitHub Actions
-          if [ -n "$NEW_JSON_FILE" ]; then
-            echo "INPUT_PATH=${NEW_JSON_FILE#./}" >> $GITHUB_ENV
-          else
-            echo "No JSON files detected."
-            echo "INPUT_PATH=" >> $GITHUB_ENV
-          fi
-        shell: bash
+    return validated_data, manifests_data
 
-      - name: Run main script
-        if: env.INPUT_PATH != ''
-        run: |
-          python Automation/AKS/Workload-Cluster/main.py \
-            --input "${INPUT_PATH}" \
-            --mapping "${MAPPING_PATH}" \
-            --template "${TEMPLATE_PATH}"
+def replace_placeholders(yaml_content, replacements):
+    """Replaces placeholders in the YAML content with actual values."""
+    if isinstance(yaml_content, dict):
+        return {
+            k: replace_placeholders(v, replacements) for k, v in yaml_content.items()
+        }
+    if isinstance(yaml_content, list):
+        return [replace_placeholders(i, replacements) for i in yaml_content]
+    if isinstance(yaml_content, str):
+        for key, value in replacements.items():
+            placeholder = f"${{{key}}}"
+            if placeholder in yaml_content:
+                yaml_content = yaml_content.replace(placeholder, str(value))
+                # logging.info("Replacing %s with %s", placeholder, value)
+        return yaml_content
+    return yaml_content
 
+def update_yaml_manifest(
+    yaml_template: str, validated_data: dict, manifests_data: dict
+) -> str:
+    """Updates the YAML manifest with the validated input values."""
+    # Load all YAML documents from the template
+    yaml_docs = yaml.safe_load_all(yaml_template)
 
+    # Prepare a list to store the updated documents
+    updated_docs = []
 
+    for doc in yaml_docs:
+        # Make a deep copy of the current document to avoid modifying the original template
+        updated_doc = copy.deepcopy(doc)
 
-name: Automation Pipeline
+        # Combine validated_data and document-specific manifest data
+        replacements = validated_data.copy()
+        replacements.update(manifests_data)
 
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - "Clusters-Dev/AKS/Input/*.json"
+        # Replace placeholders in the copied document
+        updated_doc = replace_placeholders(updated_doc, replacements)
 
-jobs:
-  trigger_on:
-    runs-on: ubuntu-latest
+        # Add the updated document to the list
+        updated_docs.append(updated_doc)
 
-    env:
-      OUTPUT_DIR: ${{ secrets.OUTPUT_DIR }}
-      MAPPING_PATH: ${{ secrets.MAPPING_PATH }}
-      TEMPLATE_PATH: ${{ secrets.TEMPLATE_PATH }}
+    # Combine all updated documents into a single string
+    updated_yaml = "\n---\n".join([yaml.safe_dump(doc) for doc in updated_docs])
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+    return updated_yaml
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.9"
+def generate_output(validated_data):
+    """Dynamically generate output filename based on input JSON data."""
+    cluster_name = validated_data.get("CLUSTER_NAME")
+    # environment = validated_data.get("ENV_NAME")
+    base_output_dir = os.getenv("OUTPUT_DIR")
 
-      - name: Cache Python dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+    # Define the output directory path
+    output_dirs = os.path.join(base_output_dir, f"{cluster_name}")
+    # Ensure the output directory exists
+    os.makedirs(output_dirs, exist_ok=True)
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+    # Define the required folders to be created
+    required_folders = ["namespaces", "config", "rbac", "network"]
 
-      - name: List changed JSON files
-        id: list_json_files
-        run: |
-          # Change to the directory containing JSON files
-          cd Clusters-Dev/AKS/Input/
-          
-          # List all JSON files that have been modified or added
-          JSON_FILES=$(ls -dt *.json 2>/dev/null || true)
-          echo "Detected JSON files: $JSON_FILES"
+    # Iterate through required folders to create them and add a sample text file
+    for folder in required_folders:
+        destination_folder = os.path.join(output_dirs, folder)
+        # Create the directory if it doesn't exist
+        os.makedirs(destination_folder, exist_ok=True)
 
-          # Get the most recently modified JSON file
-          NEW_JSON_FILE=$(ls -dt *.json 2>/dev/null | head -n 1 || true)
-          echo "Newly modified JSON file: $NEW_JSON_FILE"
+        # Add a sample text file inside the created folder
+        sample_file_path = os.path.join(destination_folder, "README.md")
+        with open(sample_file_path, "w", encoding="utf-8") as sample_file:
+            sample_file.write(f"This is a sample file for {folder}.")
 
-          # Set the output for GitHub Actions
-          if [ -n "$NEW_JSON_FILE" ]; then
-            echo "INPUT_PATH=Clusters-Dev/AKS/Input/$NEW_JSON_FILE" >> $GITHUB_ENV
-          else
-            echo "No JSON files detected."
-            echo "INPUT_PATH=" >> $GITHUB_ENV
-          fi
-        shell: bash
+    # Define the output file name inside the output directory
+    output_file_name = f"{cluster_name}.yaml"
+    output_file_path = os.path.join(output_dirs, output_file_name)
 
-      - name: Run main script
-        if: env.INPUT_PATH != ''
-        run: |
-          python Automation/AKS/Workload-Cluster/main.py \
-            --input "${INPUT_PATH}" \
-            --mapping "${MAPPING_PATH}" \
-            --template "${TEMPLATE_PATH}"
+    # Return the correct output path
+    return output_file_path
 
+def main():
+    """Main function to run the program."""
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description="Generate Kubernetes cluster definitions from templates."
+    )
+    parser.add_argument("--input", required=True, help="Path to the input JSON file")
+    parser.add_argument(
+        "--mapping", required=True, help="Path to the mapping JSON file"
+    )
+    parser.add_argument(
+        "--template", required=True, help="Path to the YAML template file"
+    )
 
+    args = parser.parse_args()
 
+    # Load the mapping and input data
+    mapping = load_json(args.mapping)
+    inputs = load_json(args.input)
 
+    # Validate inputs and apply defaults
+    validated_data, manifests_data = validate_and_apply_defaults(mapping, inputs)
 
+    # Debugging output
+    # logging.info("Validated Data: %s", validated_data)
+    # logging.info("Manifests Data: %s", manifests_data)
 
-- name: List changed JSON files
-  id: list_json_files
-  run: |
-    # Fetch the list of changed JSON files
-    # Use `git diff` for the most recent commit, but handle initial commits gracefully
-    if [ -n "$(git rev-parse --is-inside-work-tree 2>/dev/null)" ]; then
-      # Fetch the base commit if it's not the initial commit
-      BASE_COMMIT=$(git rev-parse HEAD~1 || echo "HEAD")
-      JSON_FILES=$(git diff --name-only $BASE_COMMIT HEAD | grep '^Clusters-Dev/AKS/Input/.*\.json$' || true)
-    else
-      JSON_FILES=""
-    fi
+    # Load the YAML template
+    with open(args.template, "r", encoding="utf-8") as yaml_file:
+        yaml_template = yaml_file.read()
 
-    echo "Detected JSON files: $JSON_FILES"
+    # Update the YAML template with validated values
+    updated_yaml = update_yaml_manifest(yaml_template, validated_data, manifests_data)
 
-    # Check if any JSON files were detected
-    if [ -n "$JSON_FILES" ]; then
-      # Get the most recently modified file
-      NEW_JSON_FILE=$(echo "$JSON_FILES" | xargs -I {} stat -c '%Y %n' {} | sort -nr | head -n 1 | cut -d' ' -f2)
-      echo "Newly modified JSON file: $NEW_JSON_FILE"
+    # output_exists(output_dir)
+    output_file_path = generate_output(validated_data)
 
-      # Set the output for GitHub Actions
-      echo "INPUT_PATH=$NEW_JSON_FILE" >> $GITHUB_ENV
-    else
-      echo "No JSON files detected."
-      echo "INPUT_PATH=" >> $GITHUB_ENV
-    fi
-  shell: bash
+    # Save the updated YAML manifest
+    with open(output_file_path, "w", encoding="utf-8") as updated_yaml_file:
+        updated_yaml_file.write(updated_yaml)
 
+    logging.info("Cluster definition saved to '%s'.", output_file_path)
 
-
-
-
-
-
-
-- name: List changed JSON files
-  id: list_json_files
-  run: |
-    # Fetch a list of JSON files that have been modified or added in the most recent commit
-    JSON_FILES=$(git diff --name-only HEAD^ HEAD | grep '^Clusters-Dev/AKS/Input/.*\.json$' || true)
-    echo "Detected JSON files: $JSON_FILES"
-
-    # Check if any JSON files were detected
-    if [ -n "$JSON_FILES" ]; then
-      # Get the most recently modified file
-      NEW_JSON_FILE=$(echo "$JSON_FILES" | xargs -I {} stat -c '%Y %n' {} | sort -nr | head -n 1 | cut -d' ' -f2)
-      echo "Newly modified JSON file: $NEW_JSON_FILE"
-
-      # Set the output for GitHub Actions
-      echo "INPUT_PATH=$NEW_JSON_FILE" >> $GITHUB_ENV
-    else
-      echo "No JSON files detected."
-      echo "INPUT_PATH=" >> $GITHUB_ENV
-    fi
-  shell: bash
-
-
-
-- name: Create and Push Tag
-        if: env.INPUT_PATH != ''
-        run: |
-          TAG_NAME="trigger-$(date +%Y%m%d%H%M%S)"
-          git tag $TAG_NAME
-          git push origin $TAG_NAME
-
-
-
-on:
-  push:
-    tags:
-      - 'trigger-*'
-
-
-
-- name: Commit and Push Manifests
-        run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
-          git add ${{ env.OUTPUT_DIR }}/*
-          if git diff-index --quiet HEAD --; then
-            echo "No changes to commit."
-          else
-            git commit -m "Generated manifests"
-            git push
-          fi
-
-      - name: Fetch and Check for Changes
-        id: check_files
-        run: |
-          git fetch origin main
-          CHANGED_FILES=$(git diff --name-only HEAD origin/main | grep 'Clusters-Dev/AKS/Workload/')
-          if [ -n "$CHANGED_FILES" ]; then
-            echo "Changed files detected: $CHANGED_FILES"
-            echo "FILES_CHANGED=true" >> $GITHUB_ENV
-          else
-            echo "No changes detected."
-            echo "FILES_CHANGED=false" >> $GITHUB_ENV
-          fi
-
-      - name: Create Trigger File if Changes Detected
-        if: env.FILES_CHANGED == 'true'
-        run: |
-          echo "Changes detected. Creating trigger file..."
-          mkdir -p .trigger
-          touch .trigger/trigger-file.txt
-          git add .trigger/trigger-file.txt
-          git commit -m "Add trigger file for second workflow"
-          git push
-
-
-
-name: Scheduled Check for Trigger File
-
-on:
-  schedule:
-    - cron: '*/30 * * * *'  # Check every 30 minutes
-  workflow_dispatch:
-
-jobs:
-  check_trigger_file:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Check for Trigger File
-        id: check_file
-        run: |
-          if [ -f ".trigger/trigger-file.txt" ]; then
-            echo "Trigger file found. Performing actions..."
-            echo "TRIGGER_FOUND=true" >> $GITHUB_ENV
-          else
-            echo "No trigger file found."
-            echo "TRIGGER_FOUND=false" >> $GITHUB_ENV
-          fi
-
-      - name: Perform Actions
-        if: env.TRIGGER_FOUND == 'true'
-        run: |
-          echo "Performing additional actions based on trigger file..."
-          # Insert the commands or scripts you want to run here
-          # For example:
-          # python scripts/another-script.py
-          # Cleanup trigger file after actions
-          rm .trigger/trigger-file.txt
-          git add .trigger/trigger-file.txt
-          git commit -m "Cleanup trigger file after actions"
-          git push
+if __name__ == "__main__":
+    main()
