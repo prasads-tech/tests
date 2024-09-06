@@ -1,1 +1,70 @@
-a
+name: Automation Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "**/*.json"  # Trigger the workflow on any JSON file change
+
+jobs:
+  process_json_files:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up jq
+        run: sudo apt-get install -y jq
+
+      - name: List and process changed JSON files
+        id: process_json
+        run: |
+          # Get a list of changed JSON files
+          CHANGED_JSON_FILES=$(git diff --name-only HEAD~1 HEAD | grep '.json$')
+
+          # Initialize an empty variable for files to process
+          FILES_TO_PROCESS=""
+
+          # Loop through each changed JSON file
+          for FILE in $CHANGED_JSON_FILES; do
+            echo "Processing file: $FILE"
+            
+            # Read the JSON file content and extract CLUSTER_NAME
+            CLUSTER_NAME=$(jq -r '.CLUSTER_NAME' "$FILE")
+            
+            # Print the CLUSTER_NAME
+            echo "Cluster Name in $FILE: $CLUSTER_NAME"
+
+            # Add the file to the processing list
+            FILES_TO_PROCESS+="$FILE "
+          done
+
+          # Check if there are files to process
+          if [ -z "$FILES_TO_PROCESS" ]; then
+            echo "No relevant JSON files changed."
+            exit 0
+          fi
+
+          echo "FILES_TO_PROCESS=${FILES_TO_PROCESS}" >> $GITHUB_ENV
+        shell: bash
+
+      - name: Process JSON files
+        if: env.FILES_TO_PROCESS != ''
+        run: |
+          for FILE in $FILES_TO_PROCESS; do
+            echo "Processing file: $FILE"
+            
+            # Read the JSON file content and extract CLUSTER_NAME
+            CLUSTER_NAME=$(jq -r '.CLUSTER_NAME' "$FILE")
+            
+            # Print the CLUSTER_NAME
+            echo "Cluster Name in $FILE: $CLUSTER_NAME"
+
+            # Example command using the CLUSTER_NAME
+            # Replace this with the actual command you want to run
+            echo "Running command with cluster name: $CLUSTER_NAME"
+            # For example: python your_script.py --cluster "$CLUSTER_NAME"
+          done
+
