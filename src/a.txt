@@ -18,53 +18,36 @@ jobs:
       - name: Set up jq
         run: sudo apt-get install -y jq
 
-      - name: List and process changed JSON files
-        id: process_json
+      - name: List and Process JSON Files
+        id: process_json_files
         run: |
-          # Get a list of changed JSON files
-          CHANGED_JSON_FILES=$(git diff --name-only HEAD~1 HEAD | grep '.json$')
+          # Change to the directory containing JSON files
+          cd Clusters-Dev/AKS/Input/
 
-          # Initialize an empty variable for files to process
-          FILES_TO_PROCESS=""
+          # Find all JSON files and print their modification time and path
+          find . -name '*.json' -print0 | while IFS= read -r -d '' FILE; do
+            # Extract the modification time and path
+            MOD_TIME=$(stat -c '%Y' "$FILE")
+            echo "$MOD_TIME $FILE"
+          done | sort -nr | head -n 1 | while read -r MOD_TIME FILE; do
+            echo "Newly modified or added JSON file: ${FILE#./}"
 
-          # Loop through each changed JSON file
-          for FILE in $CHANGED_JSON_FILES; do
-            echo "Processing file: $FILE"
-            
             # Read the JSON file content and extract CLUSTER_NAME
             CLUSTER_NAME=$(jq -r '.CLUSTER_NAME' "$FILE")
-            
-            # Print the CLUSTER_NAME
-            echo "Cluster Name in $FILE: $CLUSTER_NAME"
+            echo "Cluster Name in ${FILE#./}: $CLUSTER_NAME"
 
-            # Add the file to the processing list
-            FILES_TO_PROCESS+="$FILE "
+            # Set the environment variable for GitHub Actions
+            echo "INPUT_PATH=${FILE#./}" >> $GITHUB_ENV
+            echo "CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_ENV
           done
-
-          # Check if there are files to process
-          if [ -z "$FILES_TO_PROCESS" ]; then
-            echo "No relevant JSON files changed."
-            exit 0
-          fi
-
-          echo "FILES_TO_PROCESS=${FILES_TO_PROCESS}" >> $GITHUB_ENV
         shell: bash
 
-      - name: Process JSON files
-        if: env.FILES_TO_PROCESS != ''
+      - name: Use the Extracted CLUSTER_NAME
+        if: env.INPUT_PATH != ''
         run: |
-          for FILE in $FILES_TO_PROCESS; do
-            echo "Processing file: $FILE"
-            
-            # Read the JSON file content and extract CLUSTER_NAME
-            CLUSTER_NAME=$(jq -r '.CLUSTER_NAME' "$FILE")
-            
-            # Print the CLUSTER_NAME
-            echo "Cluster Name in $FILE: $CLUSTER_NAME"
+          echo "Processing file: $INPUT_PATH"
+          echo "Cluster Name: $CLUSTER_NAME"
 
-            # Example command using the CLUSTER_NAME
-            # Replace this with the actual command you want to run
-            echo "Running command with cluster name: $CLUSTER_NAME"
-            # For example: python your_script.py --cluster "$CLUSTER_NAME"
-          done
-
+          # Replace this with the actual command you want to run
+          # For example: python your_script.py --cluster "$CLUSTER_NAME" --file "$INPUT_PATH"
+          echo "Running command with cluster name: $CLUSTER_NAME and file: $INPUT_PATH"
