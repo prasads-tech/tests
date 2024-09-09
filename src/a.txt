@@ -1,1 +1,45 @@
-a
+name: Generate Cluster Definitions
+
+on:
+  workflow_dispatch:
+    inputs:
+      input_path:
+        description: 'Path to the input JSON file'
+        required: true
+      mapping_path:
+        description: 'Path to the mapping JSON file'
+        required: true
+      template_path:
+        description: 'Path to the YAML template file'
+        required: true
+
+jobs:
+  generate_definitions:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Python script with user inputs
+        run: |
+          python main.py --input "${{ github.event.inputs.input_path }}" \
+                         --mapping "${{ github.event.inputs.mapping_path }}" \
+                         --template "${{ github.event.inputs.template_path }}"
+
+      - name: Upload generated files
+        uses: actions/upload-artifact@v2
+        with:
+          name: generated-files
+          path: ${{ github.workspace }}/path/to/output_directory
+
