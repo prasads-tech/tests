@@ -1,4 +1,4 @@
-name: Process Uploaded JSON Files
+name: Process JSON Files
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - 'Clusters-Dev/AKS/Workload/Input/*.json'
 
 jobs:
-  process-json-files:
+  process-json:
     runs-on: ubuntu-latest
 
     steps:
@@ -20,20 +20,18 @@ jobs:
         with:
           python-version: '3.x'
 
-      # Step 3: Get new/modified JSON files
-      - name: Get list of newly added JSON files
-        id: get-files
+      # Step 3: Get list of JSON files
+      - name: List all JSON files
+        id: list-json
         run: |
-          # Find all new/modified JSON files in the Input folder
-          json_files=$(git diff --name-only HEAD^ HEAD | grep 'Clusters-Dev/AKS/Workload/Input/.*\.json')
-
-          # Check if there are new files
+          # List all JSON files in the directory
+          json_files=$(find Clusters-Dev/AKS/Workload/Input/ -name '*.json')
+          # Check if there are any files
           if [[ -z "$json_files" ]]; then
-            echo "No new JSON files detected."
+            echo "No JSON files found."
             exit 1
           fi
-
-          # Save the JSON files as space-separated paths to use in the next steps
+          # Save the JSON files list for later use
           echo "json_files=$json_files" >> $GITHUB_ENV
 
       # Step 4: Install dependencies
@@ -41,16 +39,8 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      # Step 5: Run the Python script with the new JSON files as input
-      - name: Execute the Python script with the new JSON files
+      # Step 5: Run the Python script with the JSON files
+      - name: Run Python script
         run: |
-          python final.py --input $json_files
-
-      # Step 6: Commit and push any changes (like output files)
-      - name: Commit and push changes
-        run: |
-          git config --global user.name 'GitHub Action'
-          git config --global user.email 'action@github.com'
-          git add .
-          git commit -m "Processed new JSON input files: $json_files"
-          git push
+          # Execute the script with all found JSON files
+          python final.py $json_files
