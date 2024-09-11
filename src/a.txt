@@ -1,69 +1,214 @@
-name: Generate Cluster Definitions
+"""
+A module that handles input file validation, placeholder replacement,
+and output generation.This is the Python package which generates
+the YAML manifest with the directory structure.
+Author: Prasad Jivane
+Date created/Modified: 11/09/2024
+Usage of this module: python main.py input file paths
+"""
 
-on:
-  workflow_dispatch:
-    inputs:
-      input_path:
-        description: 'Path to the input JSON file'
-        required: true
-      mapping_path:
-        description: 'Path to the mapping JSON file'
-        required: true
-      template_path:
-        description: 'Path to the YAML template file'
-        required: true
+import json
+import re
+import os
+import sys
+import logging
 
-jobs:
-  generate_definitions:
-    runs-on: ubuntu-latest
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
+# Add environment specification
+OUTPUT_DIR = os.getenv("OUTPUT_DIR")
+if not OUTPUT_DIR:
+    raise EnvironmentError("OUTPUT_DIR env is not set")
 
-      - name: Set up Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: '3.x'
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+def load_file(filepath):
+    """Load and parse a JSON file."""
+    try:
+        with open(filepath, 'r', encoding='utf-8') as file_handle:
+            return json.load(file_handle)
+    except FileNotFoundError:
+        logging.error("File %s not found.", filepath)
+        raise
+    except json.JSONDecodeError:
+        logging.error("Error decoding JSON in file %s", filepath)
+        raise
 
-      - name: Run Python script with user inputs
-        run: |
-          python main.py --input "${{ github.event.inputs.input_path }}" \
-                         --mapping "${{ github.event.inputs.mapping_path }}" \
-                         --template "${{ github.event.inputs.template_path }}"
 
-      - name: Generate Branch Name
-        id: generate_branch_name
-        run: |
-          # Extract the file name from the input path and sanitize it
-          INPUT_FILE="${{ github.event.inputs.input_path }}"
-          BRANCH_NAME=$(echo "${INPUT_FILE}" | sed 's/[^a-zA-Z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
-          echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
+def validate_input(input_data, field_mapping):
+    """
+    Validate input fields based on the rules provided in field mapping
+    (regex, min_length, max_length).
+    """
+    common_fields = field_mapping.get('common', {})
 
-      - name: Install GitHub CLI
-        run: |
-          sudo apt-get update
-          sudo apt-get install gh -y
+    for field, rules in common_fields.items():
+        value = input_data.get(field)
 
-      - name: Commit and Push changes
-        run: |
-          git config user.name "prasad-vm"
-          git config user.email "actions@github.com"
-          git checkout -b "feature/${{ env.BRANCH_NAME }}"
-          git add path/to/output_directory
-          git commit -m "Add generated files"
-          git push origin "feature/${{ env.BRANCH_NAME }}"
+        if not value:
+            if rules.get('required', False):
+                raise ValueError(
+                    f"Field '{field}' is required but missing in input.json."
+                )
+            continue
 
-      - name: Create Pull Request
-        run: |
-          gh auth login --with-token < ${{ secrets.GITHUB_TOKEN }}
-          gh pr create --base main --head "feature/${{ env.BRANCH_NAME }}" \
-                       --title "Automated PR: Update generated files" \
-                       --body "This PR includes the latest generated files from the workflow."
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if not isinstance(value, str):
+            raise ValueError(
+                f"Field '{field}' should string. Got {type(value)} instead."
+            )
+
+        min_length = rules.get("min_length")
+        if min_length and len(value) < min_length:
+            raise ValueError(
+                f"Field '{field}' is shorter than min. length of {min_length}."
+            )
+
+        max_length = rules.get("max_length")
+        if max_length and len(value) > max_length:
+            raise ValueError(
+                f"Field '{field}' exceeds the maximum length of {max_length}."
+            )
+
+        pattern = rules.get("regex")
+        if pattern and not re.match(pattern, value):
+            raise ValueError(
+                f"Field '{field}' not match required pattern '{pattern}'."
+            )
+
+    logging.info("Validation successful!")
+
+
+def replace_placeholders(template_data, input_data):
+    """
+    Replace placeholders in the template with values from the input data.
+    """
+    for key, value in input_data.items():
+        placeholder = f"${{{key}}}"
+        template_data = template_data.replace(placeholder, value)
+
+    return template_data
+
+
+def validate_file_presence(mapping_file, template_file):
+    """
+    Validate that the mapping and template files exist.
+    """
+    if not mapping_file or not os.path.exists(mapping_file):
+        raise FileNotFoundError(f"Mapping file '{mapping_file}' not found.")
+    if not template_file or not os.path.exists(template_file):
+        raise FileNotFoundError(f"Template file '{template_file}' not found.")
+
+
+def generate_output(validated_data):
+    """
+    Dynamically generate output filename based on input JSON data.
+    """
+    cluster_name = validated_data.get("CLUSTER_NAME")
+    if not cluster_name:
+        raise ValueError("CLUSTER_NAME is missing from the input data.")
+
+    cluster_output_dir = os.path.join(OUTPUT_DIR, cluster_name)
+    os.makedirs(cluster_output_dir, exist_ok=True)
+
+    required_folders = ["namespaces", "config", "rbac", "network"]
+    for folder in required_folders:
+        destination_folder = os.path.join(cluster_output_dir, folder)
+        os.makedirs(destination_folder, exist_ok=True)
+        sample_file_path = os.path.join(destination_folder, "README.md")
+        with open(sample_file_path, 'w', encoding='utf-8') as sample_file:
+            sample_file.write(f"This is a sample file for {folder}.")
+
+    output_file_name = f"{cluster_name}.yaml"
+    output_file_path = os.path.join(cluster_output_dir, output_file_name)
+    return output_file_path
+
+
+def write_output(output_file_path, output_data):
+    """
+    Write the processed template data to an output YAML file.
+    Raises:
+        IOError: If there is a problem writing to the file.
+    """
+    try:
+        with open(output_file_path, 'w', encoding='utf-8') as file_handle:
+            file_handle.write(output_data)
+        logging.info("Generated manifest %s", output_file_path)
+    except IOError as e:
+        logging.error(
+            "Error writing to %s manifest file with %s",
+            output_file_path,
+            e
+        )
+        raise
+
+
+def process_file(input_file):
+    """
+    Process a single input file: validation, placeholder replacement,
+    and output generation.
+    """
+    try:
+        input_data = load_file(input_file)
+
+        mapping_file = input_data.get("mapping")
+        template_file = input_data.get("template")
+
+        validate_file_presence(mapping_file, template_file)
+
+        field_mapping = load_file(mapping_file)
+        with open(template_file, 'r', encoding='utf-8') as template_handle:
+            template_data = template_handle.read()
+
+        validate_input(input_data, field_mapping)
+        output_data = replace_placeholders(template_data, input_data)
+        output_file_path = generate_output(input_data)
+        write_output(output_file_path, output_data)
+
+    except FileNotFoundError as e:
+        logging.error("File not found: %s. Error: %s", input_file, e)
+    except json.JSONDecodeError as e:
+        logging.error("JSON decode error in file %s. Error: %s", input_file, e)
+    except ValueError as e:
+        logging.error("Value error in file %s. Error: %s", input_file, e)
+    except IOError as e:
+        logging.error("I/O error in file %s. Error: %s", input_file, e)
+    except Exception as e:
+        logging.error("Unexpected error file %s. Error: %s", input_file, e)
+        raise
+
+
+def main():
+    """
+    Main function to process multiple input files passed as arguments.
+    """
+    if len(sys.argv) < 2:
+        print("Usage: python3 main.py input.json")
+        sys.exit(1)
+
+    input_files = sys.argv[1:]
+
+    for input_file in input_files:
+        if not os.path.exists(input_file):
+            logging.error("Input file '%s' not found.", input_file)
+            continue
+
+        try:
+            process_file(input_file)
+        except FileNotFoundError as e:
+            logging.error("File not found: %s. Error: %s", input_file, e)
+        except json.JSONDecodeError as e:
+            logging.error("JSON decode error %s. Error: %s", input_file, e)
+        except ValueError as e:
+            logging.error("Value error in file %s. Error: %s", input_file, e)
+        except IOError as e:
+            logging.error("I/O error in file %s. Error: %s", input_file, e)
+        except Exception as e:
+            logging.error("Unexpected error file %s. Error: %s", input_file, e)
+            raise
+
+
+if __name__ == "__main__":
+    main()
