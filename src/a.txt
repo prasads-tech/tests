@@ -1,214 +1,200 @@
-"""
-A module that handles input file validation, placeholder replacement,
-and output generation.This is the Python package which generates
-the YAML manifest with the directory structure.
-Author: Prasad Jivane
-Date created/Modified: 11/09/2024
-Usage of this module: python main.py input file paths
-"""
-
-import json
-import re
-import os
-import sys
-import logging
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-
-# Add environment specification
-OUTPUT_DIR = os.getenv("OUTPUT_DIR")
-if not OUTPUT_DIR:
-    raise EnvironmentError("OUTPUT_DIR env is not set")
-
-
-def load_file(filepath):
-    """Load and parse a JSON file."""
-    try:
-        with open(filepath, 'r', encoding='utf-8') as file_handle:
-            return json.load(file_handle)
-    except FileNotFoundError:
-        logging.error("File %s not found.", filepath)
-        raise
-    except json.JSONDecodeError:
-        logging.error("Error decoding JSON in file %s", filepath)
-        raise
+{
+    "CLUSTER_NAME": "aaclsss2",
+    "CLUSTER_NAMESPACE": "default",
+    "ENV_NAME": "dev",
+    "CLUSTER_LOCATION": "eastus",
+    "AZURE_SUBSCRIPTION_ID": "ed01b68b-222b-4863-aaf8-edcdbaf0fff0",
+    "AZURE_RESOURCE_GROUP": "gze-mgmtclus-sb1-rgp-001",
+    "KUBERNETES_VERSION": "1.28.9",
+    "VNET_CIDR": "10.22.51.0/24",
+    "VNET_NAME": "GZE-SHRAPP-NP-VNET2-76",
+    "VNET_RG": "GZE-NETWRK-RGP-001",
+    "SUBNET_CIDR": "10.22.51.0/24",
+    "SUBNET_NAME": "GZE-NP-ISOUTR6_10.22.51.0_24",
+    "TENANT_ID": "7389d8c0-3607-465c-a69f-7d4426502912",
+    "CLIENT_ID": "08edbe6e-3a26-4105-8dff-510b6bb27c72",
+    "SKU": "Standard_D4S_v3",
+    "SKU_SIZE": "Standard_b12ms",
+    "Admin-Group-AAD-ID": "admin-group-1",
+    "ADMIN_ID_AAD": "a99651b9-8e15-4bb6-8f83-c4a0e27575de",
+    "KEY_USER_POOL1": "key-user",
+    "VALUE_USER_POOL1": "value-user",
+    "SOME_OTHER_FIELD": "SampleData",
+    "mapping": "../../../Cluster-artifacts/Templates/FieldMapping.json",
+    "template": "../../../Cluster-artifacts/Templates/AKS-templates01.yaml"
+}
 
 
-def validate_input(input_data, field_mapping):
-    """
-    Validate input fields based on the rules provided in field mapping
-    (regex, min_length, max_length).
-    """
-    common_fields = field_mapping.get('common', {})
-
-    for field, rules in common_fields.items():
-        value = input_data.get(field)
-
-        if not value:
-            if rules.get('required', False):
-                raise ValueError(
-                    f"Field '{field}' is required but missing in input.json."
-                )
-            continue
-
-        if not isinstance(value, str):
-            raise ValueError(
-                f"Field '{field}' should string. Got {type(value)} instead."
-            )
-
-        min_length = rules.get("min_length")
-        if min_length and len(value) < min_length:
-            raise ValueError(
-                f"Field '{field}' is shorter than min. length of {min_length}."
-            )
-
-        max_length = rules.get("max_length")
-        if max_length and len(value) > max_length:
-            raise ValueError(
-                f"Field '{field}' exceeds the maximum length of {max_length}."
-            )
-
-        pattern = rules.get("regex")
-        if pattern and not re.match(pattern, value):
-            raise ValueError(
-                f"Field '{field}' not match required pattern '{pattern}'."
-            )
-
-    logging.info("Validation successful!")
+{
+    "CLUSTER_NAME": "aaclsss3",
+    "CLUSTER_NAMESPACE": "default",
+    "ENV_NAME": "dev",
+    "CLUSTER_LOCATION": "eastus",
+    "AZURE_SUBSCRIPTION_ID": "ed01b68b-222b-4863-aaf8-edcdbaf0fff0",
+    "AZURE_RESOURCE_GROUP": "gze-mgmtclus-sb1-rgp-001",
+    "KUBERNETES_VERSION": "1.28.9",
+    "VNET_CIDR": "10.22.51.0/24",
+    "VNET_NAME": "GZE-SHRAPP-NP-VNET2-76",
+    "VNET_RG": "GZE-NETWRK-RGP-001",
+    "SUBNET_CIDR": "10.22.51.0/24",
+    "SUBNET_NAME": "GZE-NP-ISOUTR6_10.22.51.0_24",
+    "TENANT_ID": "7389d8c0-3607-465c-a69f-7d4426502912",
+    "CLIENT_ID": "08edbe6e-3a26-4105-8dff-510b6bb27c72",
+    "SKU": "Standard_D4S_v3",
+    "SKU_SIZE": "Standard_b12ms",
+    "Admin-Group-AAD-ID": "admin-group-1",
+    "ADMIN_ID_AAD": "a99651b9-8e15-4bb6-8f83-c4a0e27575de",
+    "KEY_USER_POOL1": "key-user",
+    "VALUE_USER_POOL1": "value-user",
+    "SOME_OTHER_FIELD": "SampleData",
+    "mapping": "../../../Cluster-artifacts/Templates/FieldMapping.json",
+    "template": "../../../Cluster-artifacts/Templates/AKS-templates01.yaml"
+}
 
 
-def replace_placeholders(template_data, input_data):
-    """
-    Replace placeholders in the template with values from the input data.
-    """
-    for key, value in input_data.items():
-        placeholder = f"${{{key}}}"
-        template_data = template_data.replace(placeholder, value)
 
-    return template_data
-
-
-def validate_file_presence(mapping_file, template_file):
-    """
-    Validate that the mapping and template files exist.
-    """
-    if not mapping_file or not os.path.exists(mapping_file):
-        raise FileNotFoundError(f"Mapping file '{mapping_file}' not found.")
-    if not template_file or not os.path.exists(template_file):
-        raise FileNotFoundError(f"Template file '{template_file}' not found.")
-
-
-def generate_output(validated_data):
-    """
-    Dynamically generate output filename based on input JSON data.
-    """
-    cluster_name = validated_data.get("CLUSTER_NAME")
-    if not cluster_name:
-        raise ValueError("CLUSTER_NAME is missing from the input data.")
-
-    cluster_output_dir = os.path.join(OUTPUT_DIR, cluster_name)
-    os.makedirs(cluster_output_dir, exist_ok=True)
-
-    required_folders = ["namespaces", "config", "rbac", "network"]
-    for folder in required_folders:
-        destination_folder = os.path.join(cluster_output_dir, folder)
-        os.makedirs(destination_folder, exist_ok=True)
-        sample_file_path = os.path.join(destination_folder, "README.md")
-        with open(sample_file_path, 'w', encoding='utf-8') as sample_file:
-            sample_file.write(f"This is a sample file for {folder}.")
-
-    output_file_name = f"{cluster_name}.yaml"
-    output_file_path = os.path.join(cluster_output_dir, output_file_name)
-    return output_file_path
-
-
-def write_output(output_file_path, output_data):
-    """
-    Write the processed template data to an output YAML file.
-    Raises:
-        IOError: If there is a problem writing to the file.
-    """
-    try:
-        with open(output_file_path, 'w', encoding='utf-8') as file_handle:
-            file_handle.write(output_data)
-        logging.info("Generated manifest %s", output_file_path)
-    except IOError as e:
-        logging.error(
-            "Error writing to %s manifest file with %s",
-            output_file_path,
-            e
-        )
-        raise
-
-
-def process_file(input_file):
-    """
-    Process a single input file: validation, placeholder replacement,
-    and output generation.
-    """
-    try:
-        input_data = load_file(input_file)
-
-        mapping_file = input_data.get("mapping")
-        template_file = input_data.get("template")
-
-        validate_file_presence(mapping_file, template_file)
-
-        field_mapping = load_file(mapping_file)
-        with open(template_file, 'r', encoding='utf-8') as template_handle:
-            template_data = template_handle.read()
-
-        validate_input(input_data, field_mapping)
-        output_data = replace_placeholders(template_data, input_data)
-        output_file_path = generate_output(input_data)
-        write_output(output_file_path, output_data)
-
-    except FileNotFoundError as e:
-        logging.error("File not found: %s. Error: %s", input_file, e)
-    except json.JSONDecodeError as e:
-        logging.error("JSON decode error in file %s. Error: %s", input_file, e)
-    except ValueError as e:
-        logging.error("Value error in file %s. Error: %s", input_file, e)
-    except IOError as e:
-        logging.error("I/O error in file %s. Error: %s", input_file, e)
-    except Exception as e:
-        logging.error("Unexpected error file %s. Error: %s", input_file, e)
-        raise
-
-
-def main():
-    """
-    Main function to process multiple input files passed as arguments.
-    """
-    if len(sys.argv) < 2:
-        print("Usage: python3 main.py input.json")
-        sys.exit(1)
-
-    input_files = sys.argv[1:]
-
-    for input_file in input_files:
-        if not os.path.exists(input_file):
-            logging.error("Input file '%s' not found.", input_file)
-            continue
-
-        try:
-            process_file(input_file)
-        except FileNotFoundError as e:
-            logging.error("File not found: %s. Error: %s", input_file, e)
-        except json.JSONDecodeError as e:
-            logging.error("JSON decode error %s. Error: %s", input_file, e)
-        except ValueError as e:
-            logging.error("Value error in file %s. Error: %s", input_file, e)
-        except IOError as e:
-            logging.error("I/O error in file %s. Error: %s", input_file, e)
-        except Exception as e:
-            logging.error("Unexpected error file %s. Error: %s", input_file, e)
-            raise
-
-
-if __name__ == "__main__":
-    main()
+{
+    "common": {
+        "CLUSTER_NAME": {
+            "required": true,
+            "default": "",
+            "regex": "^[a-z0-9-]+$",
+            "min_length": 3,
+            "max_length": 20
+        },
+        "CLUSTER_NAMESPACE": {
+            "required": true,
+            "default": "default",
+            "regex": "^[a-z0-9-]+$",
+            "min_length": 3,
+            "max_length": 20
+        },
+        "ENV_NAME": {
+            "required": true,
+            "default": "dev",
+            "regex": "^(dev|staging|prod)$",
+            "min_length": 3,
+            "max_length": 10
+        },
+        "AZURE_SUBSCRIPTION_ID": {
+            "required": true,
+            "default": "",
+            "regex": "^[a-f0-9-]{36}$",
+            "min_length": 36,
+            "max_length": 36
+        },
+        "AZURE_RESOURCE_GROUP": {
+            "required": true,
+            "default": "",
+            "regex": "^[a-zA-Z0-9-_]+$",
+            "min_length": 3,
+            "max_length": 64
+        },
+        "KUBERNETES_VERSION": {
+            "required": true,
+            "default": "",
+            "regex": "^\\d+\\.\\d+\\.\\d+$",
+            "min_length": 5,
+            "max_length": 10
+        },
+        "VNET_CIDR": {
+            "required": true,
+            "default": "",
+            "regex": "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}/\\d{1,2}$",
+            "min_length": 9,
+            "max_length": 18
+        },
+        "VNET_NAME": {
+            "required": true,
+            "default": "",
+            "regex": "^[a-zA-Z0-9-_]+$",
+            "min_length": 3,
+            "max_length": 64
+        },
+        "VNET_RG": {
+            "required": true,
+            "default": "",
+            "regex": "^[a-zA-Z0-9-_]+$",
+            "min_length": 3,
+            "max_length": 64
+        },
+        "SUBNET_CIDR": {
+            "required": true,
+            "default": "",
+            "regex": "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}/\\d{1,2}$",
+            "min_length": 9,
+            "max_length": 18
+        },
+        "SUBNET_NAME": {
+            "required": true,
+            "default": "",
+            "regex": "^[a-zA-Z0-9-_.\\/]+$",
+            "min_length": 3,
+            "max_length": 64
+        },
+        "TENANT_ID": {
+            "required": true,
+            "default": "",
+            "regex": "^[a-f0-9-]{36}$",
+            "min_length": 36,
+            "max_length": 36
+        },
+        "CLIENT_ID": {
+            "required": true,
+            "default": "",
+            "regex": "^[a-f0-9-]{36}$",
+            "min_length": 36,
+            "max_length": 36
+        },
+        "SKU": {
+            "required": true,
+            "default": "Standard_D4S_v3",
+            "regex": "^Standard_[a-zA-Z0-9_.]+$",
+            "min_length": 5,
+            "max_length": 20
+        },
+        "SKU_SIZE": {
+            "required": true,
+            "default": "Standard_b12ms",
+            "regex": "^Standard_[a-zA-Z0-9]+$",
+            "min_length": 5,
+            "max_length": 20
+        },
+        "Admin-Group-AAD-ID": {
+            "required": true,
+            "default": "",
+            "regex": "^[a-zA-Z0-9-_]+$",
+            "min_length": 3,
+            "max_length": 64
+        },
+        "ADMIN_ID_AAD": {
+            "required": true,
+            "default": "",
+            "regex": "^[a-f0-9-]{36}$",
+            "min_length": 36,
+            "max_length": 36
+        },
+        "KEY_USER_POOL1": {
+            "required": true,
+            "default": "",
+            "regex": "^[a-zA-Z0-9-_]+$",
+            "min_length": 3,
+            "max_length": 64
+        },
+        "VALUE_USER_POOL1": {
+            "required": true,
+            "default": "",
+            "regex": "^[a-zA-Z0-9-_]+$",
+            "min_length": 3,
+            "max_length": 64
+        },
+        "SOME_OTHER_FIELD": {
+            "required": false,
+            "default": "SampleData",
+            "regex": "^.+$",
+            "min_length": 1,
+            "max_length": 255
+        }
+    }
+}
+  
