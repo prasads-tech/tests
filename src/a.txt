@@ -1,85 +1,56 @@
-name: Process JSON Files in Batches
+name: Process Uploaded JSON Files
 
 on:
   push:
     paths:
       - 'Clusters-Dev/AKS/Workload/Input/*.json'
-      - 'Clusters-NonProd/AKS/Workload/Input/*.json'
-      - 'Clusters-Prod/AKS/Workload/Input/*.json'
 
 jobs:
-  batch-processing:
+  process-json-files:
     runs-on: ubuntu-latest
 
-    # Step 1: Get all modified files
     steps:
-      - name: Checkout Repository
+      # Step 1: Checkout the repository
+      - name: Checkout code
         uses: actions/checkout@v2
 
+      # Step 2: Set up Python environment
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
 
-      - name: Get modified JSON files
+      # Step 3: Get new/modified JSON files
+      - name: Get list of newly added JSON files
         id: get-files
         run: |
-          # Get list of modified files
-          files=$(git diff --name-only HEAD^ HEAD | grep 'Clusters-Dev/AKS/Workload/Input/.*\.json')
-          
-          # Save files to a JSON array (to be used in the matrix)
-          echo "changed_files=$(jq -nR '[inputs]' <<<"$files")" >> $GITHUB_ENV
+          # Find all new/modified JSON files in the Input folder
+          json_files=$(git diff --name-only HEAD^ HEAD | grep 'Clusters-Dev/AKS/Workload/Input/.*\.json')
 
-    # Step 2: Process JSON files in batches using a matrix
-    strategy:
-      matrix:
-        file-batch: ${{ fromJson(env.changed_files) }}
-        # Limiting the number of parallel jobs
-        max-parallel: 5
+          # Check if there are new files
+          if [[ -z "$json_files" ]]; then
+            echo "No new JSON files detected."
+            exit 1
+          fi
 
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v2
+          # Save the JSON files as space-separated paths to use in the next steps
+          echo "json_files=$json_files" >> $GITHUB_ENV
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.x'
-
+      # Step 4: Install dependencies
       - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Process JSON file
         run: |
-          echo "Processing file: ${{ matrix.file-batch }}"
-          # Run your Python script for each input file
-          python final.py --input ${{ matrix.file-batch }}
+          pip install -r requirements.txt
 
-      - name: Copy Output to Workload Directory
+      # Step 5: Run the Python script with the new JSON files as input
+      - name: Execute the Python script with the new JSON files
         run: |
-          cp -r output/* Clusters-Dev/AKS/Workload/
-      
-      - name: Commit and Push Changes
+          python final.py --input $json_files
+
+      # Step 6: Commit and push any changes (like output files)
+      - name: Commit and push changes
         run: |
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
-          git add Clusters-Dev/AKS/Workload/
-          git commit -m "Processed output for ${{ matrix.file-batch }}"
-          git push origin
-
-  # Step 3: Create a PR for merging changes
-  create-pr:
-    needs: batch-processing
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v2
-
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v5
-        with:
-          branch: json-output
-          commit-message: "Processed output files"
-          title: "Processed JSON Input Files"
-          body: "Generated output from newly added JSON files."
-          labels: ["json-processing", "automation"]
+          git add .
+          git commit -m "Processed new JSON input files: $json_files"
+          git push
