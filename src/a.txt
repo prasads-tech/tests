@@ -1,3 +1,31 @@
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip
+          pip install -r requirements.txt
+          sudo apt-get install -y jq openssl
+
+      - name: Generate JWT
+        id: generate-jwt
+        run: |
+          PRIVATE_KEY="${{ secrets.GITHUB_APP_PRIVATE_KEY }}"
+          APP_ID="${{ secrets.GITHUB_APP_ID }}"
+          EXPIRY_TIME=$(date +%s)
+          EXPIRY_TIME=$((EXPIRY_TIME + 600)) # 10 minutes later
+
+          HEADER='{"alg": "RS256", "typ": "JWT"}'
+          PAYLOAD="{\"iat\": ${EXPIRY_TIME}, \"exp\": ${EXPIRY_TIME}, \"iss\": \"${APP_ID}\"}"
+
+          HEADER_BASE64=$(echo -n "$HEADER" | jq -c . | openssl base64 -e | tr -d '=' | tr '+/' '-_' | tr -d '\n')
+          PAYLOAD_BASE64=$(echo -n "$PAYLOAD" | jq -c . | openssl base64 -e | tr -d '=' | tr '+/' '-_' | tr -d '\n')
+
+          SIGNATURE=$(echo -n "${HEADER_BASE64}.${PAYLOAD_BASE64}" | openssl dgst -sha256 -sign <(echo -n "$PRIVATE_KEY") | openssl base64 -e | tr -d '=' | tr '+/' '-_' | tr -d '\n')
+
+          JWT="${HEADER_BASE64}.${PAYLOAD_BASE64}.${SIGNATURE}"
+
+          echo "JWT=${JWT}" >> $GITHUB_ENV
+          echo "Generated JWT: ${JWT}"
+
 private_key=$(echo "${{ secrets.GITHUB_APP_PRIVATE_KEY }}" | base64 -d)
 app_id=$(echo "${{ secrets.GITHUB_APP_ID }}")
 
