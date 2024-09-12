@@ -1,108 +1,37 @@
-import time
-import os
-import json
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives.hashes import SHA256
-import base64
+private_key=$(echo "${{ secrets.GITHUB_APP_PRIVATE_KEY }}" | base64 -d)
+app_id=$(echo "${{ secrets.GITHUB_APP_ID }}")
 
-# Load secrets from environment variables
-private_key_str = os.getenv("GITHUB_APP_PRIVATE_KEY").replace("\\n", "\n")
-app_id = os.getenv("GITHUB_APP_ID")
-
-if not private_key_str or not app_id:
-    raise ValueError("Missing required environment variables: GITHUB_APP_PRIVATE_KEY or GITHUB_APP_ID")
-
-# Load the private key from the environment variable
-private_key = serialization.load_pem_private_key(
-    private_key_str.encode(),
-    password=None,
-)
-
-# Create JWT header and payload
-header = {
-    "alg": "RS256",
-    "typ": "JWT"
-}
-payload = {
-    "iat": int(time.time()),  # Issued at time
-    "exp": int(time.time()) + (10 * 60),  # Expiration time (10 minutes from now)
-    "iss": app_id  # GitHub App ID
-}
-
-def base64url_encode(data):
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode('utf-8')
-
-# Encode header and payload
-header_encoded = base64url_encode(json.dumps(header).encode('utf-8'))
-payload_encoded = base64url_encode(json.dumps(payload).encode('utf-8'))
-
-# Create the message to sign
-message = f"{header_encoded}.{payload_encoded}".encode('utf-8')
-
-# Sign the message with the private key
-signature = private_key.sign(
-    message,
-    padding.PKCS1v15(),
-    SHA256()
-)
-
-# Encode the signature
-signature_encoded = base64url_encode(signature)
-
-# Combine all parts into the final JWT
-jwt_token = f"{header_encoded}.{payload_encoded}.{signature_encoded}"
-
-print(jwt_token)
+if [ -z "$private_key" ] || [ -z "$app_id" ]; then
+  echo "Missing GitHub App credentials"
+  exit 1
+fi
 
 
 
-- name: Push branch to repository
-      env:
-        GITHUB_APP_ID: ${{ secrets.GITHUB_APP_ID }}
-        GITHUB_APP_PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
-      run: |
-        # Generate JWT
-        JWT=$(python3 -c '
+JWT=$(python3 -c '
 import jwt
 import time
 import os
+
 private_key = os.getenv("GITHUB_APP_PRIVATE_KEY")
 app_id = os.getenv("GITHUB_APP_ID")
-payload = {"iat": int(time.time()), "exp": int(time.time()) + (10 * 60), "iss": app_id}
-jwt_token = jwt.encode(payload, private_key, algorithm="RS256")
-print(jwt_token)
-')
-        echo "JWT generated: $JWT"
 
-        # Use JWT to authenticate and push branch
-        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_APP_PRIVATE_KEY }}@github.com/${{ github.repository }}.git
-        git push origin HEAD:${{ steps.create_branch.outputs.branch }}
+if not private_key or not app_id:
+    raise ValueError("Missing environment variables for private key or app ID")
 
-    - name: Create Pull Request
-      env:
-        GITHUB_APP_ID: ${{ secrets.GITHUB_APP_ID }}
-        GITHUB_APP_PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
-      run: |
-        # Generate JWT
-        JWT=$(python3 -c '
-import jwt
-import time
-import os
-private_key = os.getenv("GITHUB_APP_PRIVATE_KEY")
-app_id = os.getenv("GITHUB_APP_ID")
 payload = {"iat": int(time.time()), "exp": int(time.time()) + (10 * 60), "iss": app_id}
 jwt_token = jwt.encode(payload, private_key, algorithm="RS256")
 print(jwt_token)
 ')
 
-        # Create Pull Request
-        PR_RESPONSE=$(curl -s -X POST \
-          -H "Authorization: Bearer $JWT" \
-          -H "Content-Type: application/json" \
-          -d '{"title":"Auto-generated PR for new JSON files", "head":"'"${{ steps.create_branch.outputs.branch }}"'", "base":"main", "body":"This PR contains changes generated from the new JSON inputs."}' \
-          https://api.github.com/repos/${{ github.repository }}/pulls)
+echo "Generated JWT: $JWT"
 
-        echo "Pull request response: $PR_RESPONSE"
-        PR_URL=$(echo $PR_RESPONSE | jq -r '.html_url')
-        echo "Created Pull Request: $PR_URL"
+
+
+git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+
+echo "PR creation response: $PR_RESPONSE"
+
+gh pr create --title "Auto-generated PR for new JSON files" --body "This PR contains changes generated from the new JSON inputs." --base main --head "$BRANCH_NAME"
+
+
