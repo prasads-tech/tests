@@ -5,7 +5,8 @@
       run: |
         # Generate JWT
         JWT=$(python3 -c '
-import jwt, time
+import jwt
+import time
 import os
 private_key = os.getenv("GITHUB_APP_PRIVATE_KEY")
 app_id = os.getenv("GITHUB_APP_ID")
@@ -15,7 +16,7 @@ print(jwt_token)
 ')
         echo "JWT generated: $JWT"
 
-        # Authenticate and push branch
+        # Use JWT to authenticate and push branch
         git remote set-url origin https://x-access-token:${{ secrets.GITHUB_APP_PRIVATE_KEY }}@github.com/${{ github.repository }}.git
         git push origin HEAD:${{ steps.create_branch.outputs.branch }}
 
@@ -26,7 +27,8 @@ print(jwt_token)
       run: |
         # Generate JWT
         JWT=$(python3 -c '
-import jwt, time
+import jwt
+import time
 import os
 private_key = os.getenv("GITHUB_APP_PRIVATE_KEY")
 app_id = os.getenv("GITHUB_APP_ID")
@@ -34,72 +36,12 @@ payload = {"iat": int(time.time()), "exp": int(time.time()) + (10 * 60), "iss": 
 jwt_token = jwt.encode(payload, private_key, algorithm="RS256")
 print(jwt_token)
 ')
-        
+
         # Create Pull Request
         PR_RESPONSE=$(curl -s -X POST \
           -H "Authorization: Bearer $JWT" \
           -H "Content-Type: application/json" \
           -d '{"title":"Auto-generated PR for new JSON files", "head":"'"${{ steps.create_branch.outputs.branch }}"'", "base":"main", "body":"This PR contains changes generated from the new JSON inputs."}' \
-          https://api.github.com/repos/${{ github.repository }}/pulls)
-
-        echo "Pull request response: $PR_RESPONSE"
-        PR_URL=$(echo $PR_RESPONSE | jq -r '.html_url')
-        echo "Created Pull Request: $PR_URL"
-
-
-
-- name: Push branch to repository
-      env:
-        APP_ID: ${{ secrets.GITHUB_APP_ID }}
-        PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
-      run: |
-        # Generate a JWT token from the GitHub App
-        echo "Generating JWT token..."
-        JWT_TOKEN=$(echo -n "${{ secrets.GITHUB_APP_PRIVATE_KEY }}" | base64 -d | openssl rsautl -decrypt -inkey <(echo "$PRIVATE_KEY" | base64 -d) | jq -r '.jwt_token')
-
-        # Set the remote URL using the App JWT
-        git remote set-url origin https://x-access-token:$JWT_TOKEN@github.com/${{ github.repository }}.git
-        git push origin HEAD:$BRANCH_NAME
-
-    - name: Create Pull Request
-      env:
-        JWT_TOKEN: ${{ secrets.GITHUB_APP_JWT }}
-      run: |
-        PR_RESPONSE=$(curl -s -X POST \
-          -H "Authorization: Bearer $JWT_TOKEN" \
-          -H "Content-Type: application/json" \
-          -d '{"title":"Auto-generated PR for new JSON files", "head":"'"$BRANCH_NAME"'", "base":"main", "body":"This PR contains changes generated from the new JSON inputs."}' \
-          https://api.github.com/repos/${{ github.repository }}/pulls)
-
-        echo "Pull request response: $PR_RESPONSE"
-        PR_URL=$(echo $PR_RESPONSE | jq -r '.html_url')
-        echo "Created Pull Request: $PR_URL"
-
-
-
-
-- name: Commit changes
-      run: |
-        git config user.name "YourUsername"
-        git config user.email "your.email@example.com"
-        git add .
-        git commit -m "Processed new JSON inputs"
-
-    - name: Push branch to repository
-      env:
-        PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-      run: |
-        git remote set-url origin https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git
-        git push origin HEAD:$BRANCH_NAME
-
-    - name: Create Pull Request
-      env:
-        PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-      run: |
-        PR_RESPONSE=$(curl -s -X POST \
-          -H "Authorization: token $PAT_TOKEN" \
-          -H "Content-Type: application/json" \
-          -d '{"title":"Auto-generated PR for new JSON files", "head":"'"$BRANCH_NAME"'", "base":"main", "body":"This PR contains changes generated from the new JSON inputs."}' \
           https://api.github.com/repos/${{ github.repository }}/pulls)
 
         echo "Pull request response: $PR_RESPONSE"
