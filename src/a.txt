@@ -1,50 +1,27 @@
-name: Process JSON Files
+    - name: Commit changes
+      run: |
+        git config user.name "YourUsername"
+        git config user.email "your.email@example.com"
+        git add .
+        git commit -m "Processed new JSON inputs"
 
-on:
-  push:
-    paths:
-      - 'Clusters-Dev/AKS/Workload/Input/*.json'
+    - name: Push branch to repository
+      env:
+        PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+      run: |
+        git remote set-url origin https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git
+        git push origin HEAD:$BRANCH_NAME
 
-jobs:
-  process-json:
-    runs-on: ubuntu-latest
+    - name: Create Pull Request
+      env:
+        PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+      run: |
+        PR_RESPONSE=$(curl -s -X POST \
+          -H "Authorization: token $PAT_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"title":"Auto-generated PR for new JSON files", "head":"'"$BRANCH_NAME"'", "base":"main", "body":"This PR contains changes generated from the new JSON inputs."}' \
+          https://api.github.com/repos/${{ github.repository }}/pulls)
 
-    steps:
-      # Step 1: Checkout the repository
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      # Step 2: Set up Python environment
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.x'
-
-      # Step 3: Find JSON files
-      - name: Find JSON files
-        id: find-json
-        run: |
-          # Find all JSON files in the directory
-          json_files=$(find Clusters-Dev/AKS/Workload/Input/ -name '*.json')
-
-          # Check if there are JSON files
-          if [ -z "$json_files" ]; then
-            echo "No JSON files found."
-            exit 1
-          fi
-
-          # Output the file paths to a file
-          echo "$json_files" > files.txt
-
-      # Step 4: Install dependencies
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-
-      # Step 5: Run Python script with JSON files
-      - name: Run Python script
-        run: |
-          # Read the file paths from files.txt and pass them to the Python script
-          while IFS= read -r file; do
-            python final.py "$file"
-          done < files.txt
+        echo "Pull request response: $PR_RESPONSE"
+        PR_URL=$(echo $PR_RESPONSE | jq -r '.html_url')
+        echo "Created Pull Request: $PR_URL"
