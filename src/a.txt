@@ -1,4 +1,63 @@
-    - name: Push branch to repository
+import time
+import os
+import json
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.hashes import SHA256
+import base64
+
+# Load secrets from environment variables
+private_key_str = os.getenv("GITHUB_APP_PRIVATE_KEY").replace("\\n", "\n")
+app_id = os.getenv("GITHUB_APP_ID")
+
+if not private_key_str or not app_id:
+    raise ValueError("Missing required environment variables: GITHUB_APP_PRIVATE_KEY or GITHUB_APP_ID")
+
+# Load the private key from the environment variable
+private_key = serialization.load_pem_private_key(
+    private_key_str.encode(),
+    password=None,
+)
+
+# Create JWT header and payload
+header = {
+    "alg": "RS256",
+    "typ": "JWT"
+}
+payload = {
+    "iat": int(time.time()),  # Issued at time
+    "exp": int(time.time()) + (10 * 60),  # Expiration time (10 minutes from now)
+    "iss": app_id  # GitHub App ID
+}
+
+def base64url_encode(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode('utf-8')
+
+# Encode header and payload
+header_encoded = base64url_encode(json.dumps(header).encode('utf-8'))
+payload_encoded = base64url_encode(json.dumps(payload).encode('utf-8'))
+
+# Create the message to sign
+message = f"{header_encoded}.{payload_encoded}".encode('utf-8')
+
+# Sign the message with the private key
+signature = private_key.sign(
+    message,
+    padding.PKCS1v15(),
+    SHA256()
+)
+
+# Encode the signature
+signature_encoded = base64url_encode(signature)
+
+# Combine all parts into the final JWT
+jwt_token = f"{header_encoded}.{payload_encoded}.{signature_encoded}"
+
+print(jwt_token)
+
+
+
+- name: Push branch to repository
       env:
         GITHUB_APP_ID: ${{ secrets.GITHUB_APP_ID }}
         GITHUB_APP_PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
