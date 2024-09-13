@@ -1,4 +1,204 @@
-      - name: Commit and push changes
+name: Automation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Clusters-Dev/AKS/Input/*.json"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  trigger_on:
+    runs-on: ubuntu-latest
+
+    env:
+      OUTPUT_DIR: ${{ secrets.OUTPUT_DIR }}
+      GITHUB_APP_ID: "${{ secrets.VAM_G_APP_ID }}"
+      GITHUB_APP_PRIVATE_KEY: "${{ secrets.VAM_G_PRIVATE_KEY }}"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Find JSON files
+        id: find-json
+        run: |
+          json_files=$(find Clusters-Dev/AKS/Input/ -name '*.json')
+          if [ -z "$json_files" ]; then
+            echo "No JSON files found."
+            exit 1
+          fi
+          branch_name=$(basename "$json_files" .json)
+          echo "BRANCH_NAME=$branch_name" >> $GITHUB_ENV
+          echo "$json_files" > files.txt
+
+      - name: Generate JWT for GitHub App Authentication
+        id: generate-jwt
+        run: |
+          PRIVATE_KEY=$(echo "${{ secrets.VAM_G_PRIVATE_KEY }}" | sed 's/\\n/\n/g')
+          APP_ID="${{ secrets.VAM_G_APP_ID }}"
+          CURRENT_TIME=$(date +%s)
+          EXPIRY_TIME=$((CURRENT_TIME + 600)) # JWT valid for 10 minutes
+          HEADER='{"alg": "RS256", "typ": "JWT"}'
+          PAYLOAD="{\"iat\": ${CURRENT_TIME}, \"exp\": ${EXPIRY_TIME}, \"iss\": \"${APP_ID}\"}"
+          HEADER_BASE64=$(echo -n "$HEADER" | jq -c . | openssl base64 -e | tr -d '=' | tr '+/' '-_' | tr -d '\n')
+          PAYLOAD_BASE64=$(echo -n "$PAYLOAD" | jq -c . | openssl base64 -e | tr -d '=' | tr '+/' '-_' | tr -d '\n')
+          SIGNATURE=$(echo -n "${HEADER_BASE64}.${PAYLOAD_BASE64}" | openssl dgst -sha256 -sign <(echo -n "$PRIVATE_KEY") | openssl base64 -e | tr -d '=' | tr '+/' '-_' | tr -d '\n')
+          JWT="${HEADER_BASE64}.${PAYLOAD_BASE64}.${SIGNATURE}"
+          echo "JWT=${JWT}" >> $GITHUB_ENV
+
+      - name: Run Python script
+        run: |
+          while IFS= read -r file; do
+            python Automation/AKS/Workload-Cluster/main.py "$file"
+          done < files.txt
+
+      - name: Commit and push changes using JWT
+        run: |
+          git checkout -b "feature/${BRANCH_NAME}" || git checkout "feature/${BRANCH_NAME}"
+          git pull origin "feature/${BRANCH_NAME}" --rebase
+          git config user.name "GitHub App"
+          git config user.email "github-app@users.noreply.github.com"
+          git add .
+          git commit -m "Automated Commit: ${BRANCH_NAME}"
+          git push https://x-access-token:${JWT}@github.com/${{ github.repository }} feature/${BRANCH_NAME}
+
+      - name: Create Pull Request using JWT
+        run: |
+          PR_TITLE="Automated PR: Update generated files"
+          PR_BODY="This PR includes the latest generated files from the workflow."
+          BASE_BRANCH="main"
+          NEW_BRANCH="feature/${BRANCH_NAME}"
+
+          curl -X POST \
+            -H "Authorization: Bearer ${JWT}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/pulls \
+            -d '{"title":"'"$PR_TITLE"'","body":"'"$PR_BODY"'","head":"'"$NEW_BRANCH"'","base":"'"$BASE_BRANCH"'"}'
+
+
+
+name: Automation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Clusters-Dev/AKS/Input/*.json"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  trigger_on:
+    runs-on: ubuntu-latest
+
+    env:
+      OUTPUT_DIR: ${{ secrets.OUTPUT_DIR }}
+      GITHUB_APP_ID: "${{ secrets.VAM_G_APP_ID }}"
+      GITHUB_APP_PRIVATE_KEY: "${{ secrets.VAM_G_PRIVATE_KEY }}"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Find JSON files
+        id: find-json
+        run: |
+          json_files=$(find Clusters-Dev/AKS/Input/ -name '*.json')
+          if [ -z "$json_files" ]; then
+            echo "No JSON files found."
+            exit 1
+          fi
+          branch_name=$(basename "$json_files" .json)
+          echo "BRANCH_NAME=$branch_name" >> $GITHUB_ENV
+          echo "$json_files" > files.txt
+
+      - name: Generate JWT for GitHub App Authentication
+        id: generate-jwt
+        run: |
+          PRIVATE_KEY="${{ secrets.VAM_G_PRIVATE_KEY }}"
+          APP_ID="${{ secrets.VAM_G_APP_ID }}"
+          EXPIRY_TIME=$(date +%s)
+          EXPIRY_TIME=$((EXPIRY_TIME + 600)) # JWT valid for 10 minutes
+          HEADER='{"alg": "RS256", "typ": "JWT"}'
+          PAYLOAD="{\"iat\": ${EXPIRY_TIME}, \"exp\": ${EXPIRY_TIME}, \"iss\": \"${APP_ID}\"}"
+          HEADER_BASE64=$(echo -n "$HEADER" | jq -c . | openssl base64 -e | tr -d '=' | tr '+/' '-_' | tr -d '\n')
+          PAYLOAD_BASE64=$(echo -n "$PAYLOAD" | jq -c . | openssl base64 -e | tr -d '=' | tr '+/' '-_' | tr -d '\n')
+          SIGNATURE=$(echo -n "${HEADER_BASE64}.${PAYLOAD_BASE64}" | openssl dgst -sha256 -sign <(echo -n "$PRIVATE_KEY") | openssl base64 -e | tr -d '=' | tr '+/' '-_' | tr -d '\n')
+          JWT="${HEADER_BASE64}.${PAYLOAD_BASE64}.${SIGNATURE}"
+          echo "JWT=${JWT}" >> $GITHUB_ENV
+
+      - name: Get GitHub App Installation Token
+        id: get-installation-token
+        run: |
+          INSTALLATION_ID=$(curl -s -X GET \
+            -H "Authorization: Bearer ${{ env.JWT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/app/installations | jq '.[0].id')
+
+          INSTALLATION_TOKEN=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ env.JWT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens | jq -r .token)
+
+          echo "INSTALLATION_TOKEN=${INSTALLATION_TOKEN}" >> $GITHUB_ENV
+
+      - name: Run Python script
+        run: |
+          while IFS= read -r file; do
+            python Automation/AKS/Workload-Cluster/main.py "$file"
+          done < files.txt
+
+      - name: Commit and push changes using GitHub App Token
+        run: |
+          git checkout -b "feature/${BRANCH_NAME}" || git checkout "feature/${BRANCH_NAME}"
+          git pull origin "feature/${BRANCH_NAME}" --rebase
+          git config user.name "GitHub App"
+          git config user.email "github-app@users.noreply.github.com"
+          git add .
+          git commit -m "Automated Commit: ${BRANCH_NAME}"
+          git push https://x-access-token:${{ env.INSTALLATION_TOKEN }}@github.com/${{ github.repository }} feature/${BRANCH_NAME}
+
+      - name: Create Pull Request Using JWT and REST API
+        run: |
+          curl -X POST https://api.github.com/repos/${{ github.repository }}/pulls \
+            -H "Authorization: Bearer ${{ env.JWT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -d '{
+              "title": "Automated PR: Update generated files",
+              "head": "feature/'"${BRANCH_NAME}"'",
+              "base": "main",
+              "body": "This PR includes the latest generated files from the workflow."
+            }'
+
+
+
+- name: Commit and push changes
         run: |
           git checkout -b "feature/${BRANCH_NAME}" || git checkout "feature/${BRANCH_NAME}"
           git pull origin "feature/${BRANCH_NAME}" --rebase
