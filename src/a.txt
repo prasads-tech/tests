@@ -1,4 +1,87 @@
+name: Commit and PR
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write  # Grants permission to commit and push code
+  pull-requests: write  # Grants permission to create pull requests
+
+jobs:
+  commit_and_pr:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js (for GitHub App Authentication)
+        uses: actions/setup-node@v3
+        with:
+          node-version: '14'
+
       - name: Install dependencies
+        run: |
+          npm install -g @octokit/app @octokit/rest
+
+      - name: Authenticate with GitHub App
+        id: authenticate
+        run: |
+          APP_ID=${{ secrets.APP_ID }}
+          INSTALLATION_ID=${{ secrets.INSTALLATION_ID }}
+          PRIVATE_KEY=${{ secrets.PRIVATE_KEY }}
+
+          export JWT=$(node -e "const { createAppAuth } = require('@octokit/auth-app'); console.log(require('@octokit/auth-app')({ appId: $APP_ID, privateKey: $PRIVATE_KEY }).createJWT())")
+          
+          export TOKEN=$(curl -X POST -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github.v3+json" https://api.github.com/app/installations/$INSTALLATION_ID/access_tokens | jq -r .token)
+
+          echo "::set-output name=token::$TOKEN"
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Make code changes
+        run: |
+          # Add your commands to make the necessary code changes
+          echo "Making changes..."
+          # Example:
+          echo "New content" >> file.txt
+
+      - name: Commit and push changes
+        run: |
+          git add .
+          git commit -m "Automated commit"
+          git push origin main
+
+      - name: Create pull request
+        run: |
+          PR_TITLE="Automated PR"
+          PR_BODY="This PR was created automatically via GitHub Actions."
+          BASE_BRANCH="main"
+          NEW_BRANCH="feature-branch-$(date +%s)"
+
+          git checkout -b $NEW_BRANCH
+          git push origin $NEW_BRANCH
+
+          curl -X POST \
+            -H "Authorization: token ${{ steps.authenticate.outputs.token }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/pulls \
+            -d '{"title":"'"$PR_TITLE"'","body":"'"$PR_BODY"'","head":"'"$NEW_BRANCH"'","base":"'"$BASE_BRANCH"'"}'
+
+
+
+
+
+
+- name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-pip
