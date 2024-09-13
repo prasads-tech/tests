@@ -1,3 +1,83 @@
+name: Run Python and Create PR
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  run-python-and-create-pr:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Python Script
+        run: python your_script.py  # Replace with your Python script
+      
+      - name: Generate JWT for GitHub App
+        env:
+          GITHUB_APP_ID: ${{ secrets.GITHUB_APP_ID }}
+          GITHUB_APP_PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
+        run: |
+          # Step 1: Create JWT Header and Payload
+          HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | openssl base64 | tr -d '=' | tr '/+' '_-')
+          PAYLOAD=$(echo -n '{"iat":'$(date +%s)',"exp":'$(($(date +%s) + 600))',"iss":"'"${GITHUB_APP_ID}"'"}' | openssl base64 | tr -d '=' | tr '/+' '_-')
+          
+          # Step 2: Create the JWT
+          JWT_TOKEN=$(echo -n "${HEADER}.${PAYLOAD}" | openssl dgst -sha256 -sign <(echo "$GITHUB_APP_PRIVATE_KEY" | base64 -d) | openssl base64 | tr -d '=' | tr '/+' '_-')
+          JWT="${HEADER}.${PAYLOAD}.${JWT_TOKEN}"
+
+      - name: Get GitHub Installation Access Token
+        env:
+          GITHUB_APP_ID: ${{ secrets.GITHUB_APP_ID }}
+          GITHUB_INSTALLATION_ID: ${{ secrets.GITHUB_INSTALLATION_ID }}
+        run: |
+          INSTALLATION_TOKEN=$(curl -X POST \
+            -H "Authorization: Bearer ${JWT}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/app/installations/${GITHUB_INSTALLATION_ID}/access_tokens \
+            | jq -r .token)
+          echo "ACCESS_TOKEN=${INSTALLATION_TOKEN}" >> $GITHUB_ENV
+
+      - name: Commit and Push Changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Fallback for any further operations
+          ACCESS_TOKEN: ${{ env.ACCESS_TOKEN }}
+        run: |
+          # Create a new branch
+          BRANCH_NAME="auto-update-branch-$(date +%s)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git checkout -b $BRANCH_NAME
+          git add .
+          git commit -m "Automated commit from GitHub Actions"
+          git push https://x-access-token:${ACCESS_TOKEN}@github.com/${{ github.repository }} $BRANCH_NAME
+          
+      - name: Create a Pull Request
+        env:
+          ACCESS_TOKEN: ${{ env.ACCESS_TOKEN }}
+        run: |
+          PR_RESPONSE=$(curl -X POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/pulls \
+            -d '{"title":"Automated PR","head":"'"$BRANCH_NAME"'","base":"main"}')
+          echo $PR_RESPONSE
+
+
 name: Automation
 
 on:
