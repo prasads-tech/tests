@@ -1,5 +1,13 @@
       - name: Commit and push changes
         run: |
+          git checkout -b "feature/${BRANCH_NAME}" || git checkout "feature/${BRANCH_NAME}"
+          git pull origin "feature/${BRANCH_NAME}" --rebase
+          git add .
+          git commit -m "Automated Commit: ${BRANCH_NAME}"
+          git push origin "feature/${BRANCH_NAME}"
+
+- name: Commit and push changes
+        run: |
           git checkout -b "feature/${BRANCH_NAME}"
           git add .
           git commit -m "Automated Commit: ${BRANCH_NAME}"
