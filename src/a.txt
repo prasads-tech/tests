@@ -1,3 +1,116 @@
+name: Automation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Clusters-Dev/AKS/Input/*.json"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  commit_and_pr:
+    runs-on: ubuntu-latest
+
+    env:
+      OUTPUT_DIR: ${{ secrets.OUTPUT_DIR }}
+      GITHUB_APP_ID: "${{ secrets.VAM_G_APP_ID }}"
+      GITHUB_APP_PRIVATE_KEY: "${{ secrets.VAM_G_PRIVATE_KEY }}"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Find JSON files
+        id: find-json
+        run: |
+          # Find all JSON files in the directory
+          json_files=$(find Clusters-Dev/AKS/Input/ -name '*.json')
+
+          # Check if there are JSON files
+          if [ -z "$json_files" ]; then
+            echo "No JSON files found."
+            exit 1
+          fi
+
+          branch_name=$(basename "$json_files" .json)
+
+          echo "BRANCH_NAME=$branch_name" >> $GITHUB_ENV
+
+          # Output the file paths to a file
+          echo "$json_files" > files.txt
+
+      - name: Generate JWT
+        id: generate-jwt
+        run: |
+          PRIVATE_KEY=$(echo "${{ secrets.VAM_G_PRIVATE_KEY }}" | sed 's/\\n/\n/g')
+          APP_ID="${{ secrets.VAM_G_APP_ID }}"
+          CURRENT_TIME=$(date +%s)
+          EXPIRY_TIME=$((CURRENT_TIME + 600)) # 10 minutes later
+
+          HEADER='{"alg": "RS256", "typ": "JWT"}'
+          PAYLOAD="{\"iat\": ${CURRENT_TIME}, \"exp\": ${EXPIRY_TIME}, \"iss\": \"${APP_ID}\"}"
+
+          HEADER_BASE64=$(echo -n "$HEADER" | jq -c . | openssl base64 -e | tr -d '=' | tr '+/' '-_' | tr -d '\n')
+          PAYLOAD_BASE64=$(echo -n "$PAYLOAD" | jq -c . | openssl base64 -e | tr -d '=' | tr '+/' '-_' | tr -d '\n')
+
+          SIGNATURE=$(echo -n "${HEADER_BASE64}.${PAYLOAD_BASE64}" | openssl dgst -sha256 -sign <(echo -n "$PRIVATE_KEY") | openssl base64 -e | tr -d '=' | tr '+/' '-_' | tr -d '\n')
+
+          JWT="${HEADER_BASE64}.${PAYLOAD_BASE64}.${SIGNATURE}"
+
+          echo "JWT=${JWT}" >> $GITHUB_ENV
+          echo "Generated JWT: ${JWT}"
+          echo "::set-output name=token::$JWT"
+
+      - name: Run Python script
+        run: |
+          # Read the file paths from files.txt and pass them to the Python script
+          while IFS= read -r file; do
+            python Automation/AKS/Workload-Cluster/main.py "$file"
+          done < files.txt
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "prasad-vm"
+          git config --global user.email "prasad.jivane@valuemomentum.com"
+
+      - name: Commit and push changes
+        run: |
+          git checkout -b feature/$BRANCH_NAME
+          git add .
+          git commit -m "Automated commit"
+          git push
+
+      - name: Create pull request
+        run: |
+          PR_TITLE="Automated PR"
+          PR_BODY="This PR was created automatically via GitHub Actions."
+          BASE_BRANCH="main"
+          NEW_BRANCH="feature-branch-$(date +%s)"
+
+          git checkout -b $NEW_BRANCH
+          git push origin $NEW_BRANCH
+
+          curl -X POST \
+            -H "Authorization: Bearer ${JWT}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/pulls \
+            -d '{"title":"'"$PR_TITLE"'","body":"'"$PR_BODY"'","head":"'"$NEW_BRANCH"'","base":"'"$BASE_BRANCH"'"}'
+
+
+
 name: Commit and PR
 
 on:
