@@ -1,3 +1,16 @@
+PR_RESPONSE=$(curl -X POST \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    -H "Accept: application/vnd.github+json" \
+    https://api.github.com/repos/ValueMomentum-Inc/GEICOPOC-Spec/pulls \
+    -d '{
+      "title": "Automated PR",
+      "head": "'"${BRANCH_NAME}"'",
+      "base": "main",
+      "body": "Automated PR created via GitHub Actions"
+    }')
+
+
+
 - name: Create a Pull Request
   env:
     ACCESS_TOKEN: ${{ env.ACCESS_TOKEN }}
