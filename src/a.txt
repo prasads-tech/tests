@@ -1,3 +1,20 @@
+git fetch origin
+git checkout $BRANCH_NAME
+
+# Commit local changes if any
+if ! git diff-index --quiet HEAD --; then
+  git add .
+  git commit -m "Automated commit"
+fi
+
+# Pull with rebase
+git pull origin $BRANCH_NAME --rebase
+
+# Push changes
+git push origin $BRANCH_NAME
+
+
+
 - name: Configure git
   run: |
     git config user.name "test-user"
