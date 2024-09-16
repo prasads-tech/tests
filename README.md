@@ -30,9 +30,8 @@ It is designed to work with multiple input files, dynamically creating output di
 ```
 
 
-Usage
-
-## To run the script, execute it with JSON input files as arguments:
+# Usage
+To run the script, execute it with JSON input files as arguments:
 
 ```bash
    python3 main.py input1.json
