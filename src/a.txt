@@ -1,3 +1,29 @@
+- name: Commit and Push Changes
+  env:
+    ACCESS_TOKEN: ${{ env.ACCESS_TOKEN }}
+  run: |
+    git config user.name "usertest"
+    git config user.email "usertest@test.com"
+    
+    # Stash any unstaged changes to prevent merge conflicts
+    git stash
+    
+    # Checkout the branch and pull the latest changes from remote
+    git checkout -b $BRANCH_NAME
+    git pull origin $BRANCH_NAME --rebase
+    
+    # Apply stashed changes, if any
+    git stash pop || true
+    
+    # Stage and commit the changes
+    git add .
+    git commit -m "Automated commit"
+    
+    # Push changes, use --force-with-lease to ensure safe push
+    git push https://x-access-token:${ACCESS_TOKEN}@github.com/${{ github.repository }} $BRANCH_NAME --force-with-lease
+
+
+
 PR_RESPONSE=$(curl -X POST \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
     -H "Accept: application/vnd.github+json" \
