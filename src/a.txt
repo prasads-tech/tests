@@ -1,3 +1,21 @@
+# Step 1: Create JWT Header and Payload
+HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | openssl base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+PAYLOAD=$(echo -n '{"iat":'$(date +%s)',"exp":'$(($(date +%s) + 600))',"iss":"'"${GITHUB_APP_ID}"'"}' | openssl base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+
+# Step 2: Write the private key to a file
+echo "$GITHUB_APP_PRIVATE_KEY" > private_key.pem
+
+# Step 3: Generate the JWT signature using the private key
+JWT_SIGNATURE=$(echo -n "${HEADER}.${PAYLOAD}" | openssl dgst -sha256 -sign private_key.pem | openssl base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+
+# Step 4: Create the full JWT
+JWT="${HEADER}.${PAYLOAD}.${JWT_SIGNATURE}"
+
+# Output the JWT to GitHub environment
+echo "JWT=${JWT}" >> $GITHUB_ENV
+
+
+
 name: Run Python Script and Create PR
 
 on:
