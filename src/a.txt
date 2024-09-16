@@ -1,1 +1,23 @@
-a
+- name: Create a Pull Request
+  env:
+    ACCESS_TOKEN: ${{ env.ACCESS_TOKEN }}
+  run: |
+    PR_RESPONSE=$(curl -X POST \
+      -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+      -H "Accept: application/vnd.github+json" \
+      https://api.github.com/repos/${{ github.repository }}/pulls \
+      -d '{
+        "title": "Automated PR",
+        "head": "'"${{ github.actor }}/$BRANCH_NAME"'",
+        "base": "main",
+        "body": "Automated PR created via GitHub Actions"
+      }')
+    echo "Pull Request Response: $PR_RESPONSE"
+
+
+- name: Debug PR Creation
+  run: |
+    echo "Branch: $BRANCH_NAME"
+    echo "Repo: ${{ github.repository }}"
+    echo "PR Response: $PR_RESPONSE"
+
