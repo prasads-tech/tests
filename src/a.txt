@@ -5,7 +5,7 @@ on:
     branches:
       - newaddons
     paths:
-      - "Clusters-Dev/AKS/Workload/**"
+      - "Clusters-Dev/AKS/Workload/**/*.yaml"   # Triggers on added or modified YAML files
 
 env:
   MANAGEMENT_CLUSTER_KUBECONF: ${{ secrets.KUBECONFIG }}
@@ -21,23 +21,23 @@ jobs:
       - name: Set up Git
         run: git fetch --prune --unshallow
 
-      - name: Get newly added or modified folders
+      - name: Get newly added or modified YAML files
         run: |
           # Fetch the latest commit and the previous commit
           new_commit=$(git rev-parse HEAD)
           prev_commit=$(git rev-parse HEAD^)
 
-          # List folders that were added or modified (not deleted)
-          modified_folders=$(git diff --name-only --diff-filter=AM $prev_commit $new_commit -- 'Clusters-Dev/AKS/Workload/**.yaml' | xargs -I{} dirname {} | sort -u)
-          echo "MODIFIED_FOLDERS=$modified_folders" >> $GITHUB_ENV
+          # List YAML files that were added or modified (not deleted)
+          new_files=$(git diff --name-only --diff-filter=AM $prev_commit $new_commit -- 'Clusters-Dev/AKS/Workload/**/*.yaml')
+          echo "NEW_FILES=$new_files" >> $GITHUB_ENV
 
-          # Extract folder names and create a branch name (you can hard-code a prefix)
-          branch_name=$(basename $modified_folders | sed 's/\(.*\)\..*/\1/')
+          # Extract the filename without its path and extension to be used as branch name, with a hardcoded prefix
+          branch_name=$(basename "$new_files" | sed 's/\(.*\)\..*/\1/')
           branch_name="workload-$branch_name"
           echo "BRANCH_NAME=$branch_name" >> $GITHUB_ENV
 
-          if [ -z "$modified_folders" ]; then
-            echo "No folders with modified or new YAML files found."
+          if [ -z "$new_files" ]; then
+            echo "No YAML files found"
             exit 1
           fi
 
@@ -52,8 +52,11 @@ jobs:
           echo "Committer Name: $committer_name"
           echo "Committer Email: $committer_email"
           echo "Branch Name: $branch_name"
-          echo "Modified Folders: $modified_folders"
+          echo "Modified YAML Files: $new_files"
           echo "************************************************"
+
+
+
 
 
 
