@@ -1,3 +1,62 @@
+name: mainv2
+
+on:
+  push:
+    branches:
+      - newaddons
+    paths:
+      - "Clusters-Dev/AKS/Workload/**"
+
+env:
+  MANAGEMENT_CLUSTER_KUBECONF: ${{ secrets.KUBECONFIG }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Git
+        run: git fetch --prune --unshallow
+
+      - name: Get newly added or modified folders
+        run: |
+          # Fetch the latest commit and the previous commit
+          new_commit=$(git rev-parse HEAD)
+          prev_commit=$(git rev-parse HEAD^)
+
+          # List folders that were added or modified (not deleted)
+          modified_folders=$(git diff --name-only --diff-filter=AM $prev_commit $new_commit -- 'Clusters-Dev/AKS/Workload/**.yaml' | xargs -I{} dirname {} | sort -u)
+          echo "MODIFIED_FOLDERS=$modified_folders" >> $GITHUB_ENV
+
+          # Extract folder names and create a branch name (you can hard-code a prefix)
+          branch_name=$(basename $modified_folders | sed 's/\(.*\)\..*/\1/')
+          branch_name="workload-$branch_name"
+          echo "BRANCH_NAME=$branch_name" >> $GITHUB_ENV
+
+          if [ -z "$modified_folders" ]; then
+            echo "No folders with modified or new YAML files found."
+            exit 1
+          fi
+
+          # Get the user information (committer details)
+          committer_name=$(git log -1 --pretty=format:'%an')
+          committer_email=$(git log -1 --pretty=format:'%ae')
+          echo "COMMITTER_NAME=$committer_name" >> $GITHUB_ENV
+          echo "COMMITTER_EMAIL=$committer_email" >> $GITHUB_ENV
+
+          # Print debug information
+          echo "************************************************"
+          echo "Committer Name: $committer_name"
+          echo "Committer Email: $committer_email"
+          echo "Branch Name: $branch_name"
+          echo "Modified Folders: $modified_folders"
+          echo "************************************************"
+
+
+
 - name: Extract Parent Folder
   run: |
     # Extract the grandparent folder of the input JSON file
