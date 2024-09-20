@@ -1,3 +1,202 @@
+import json
+import os
+import sys
+import logging
+import re
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
+
+def load_file(filepath):
+    """Load and parse a JSON file."""
+    try:
+        with open(filepath, 'r', encoding='utf-8') as file_handle:
+            return json.load(file_handle)
+    except FileNotFoundError:
+        logging.error("File %s not found.", filepath)
+        raise
+    except json.JSONDecodeError:
+        logging.error("Error decoding JSON in file %s", filepath)
+        raise
+
+
+def get_spec_file(input_data):
+    """Get the spec file path based on the input data spec field."""
+    spec_type = input_data.get("spec", "shared")  # Default to "shared" if not provided
+    spec_file = f"../../../Cluster-artifacts/Spec/{spec_type}-latest.json"
+
+    if not os.path.exists(spec_file):
+        raise FileNotFoundError(f"Spec file '{spec_file}' not found for spec type: {spec_type}")
+    return spec_file
+
+
+def validate_input(input_data, field_mapping):
+    """Validate input fields based on the rules provided in field mapping."""
+    common_fields = field_mapping.get('common', {})
+
+    for field, rules in common_fields.items():
+        value = input_data.get(field)
+
+        if not value:
+            if rules.get('required', False):
+                raise ValueError(
+                    f"Field '{field}' is required but missing in input.json."
+                )
+            continue
+
+        if not isinstance(value, str):
+            raise ValueError(
+                f"Field '{field}' should be a string. Got {type(value)} instead."
+            )
+
+        min_length = rules.get("min_length")
+        if min_length and len(value) < min_length:
+            raise ValueError(
+                f"Field '{field}' is shorter than min. length of {min_length}."
+            )
+
+        max_length = rules.get("max_length")
+        if max_length and len(value) > max_length:
+            raise ValueError(
+                f"Field '{field}' exceeds the maximum length of {max_length}."
+            )
+
+        pattern = rules.get("regex")
+        if pattern and not re.match(pattern, value):
+            raise ValueError(
+                f"Field '{field}' does not match required pattern '{pattern}'."
+            )
+
+    logging.info("Validation successful!")
+
+
+def replace_placeholders(template_data, input_data):
+    """Replace placeholders in the template with values from the input data."""
+    for key, value in input_data.items():
+        placeholder = f"${{{key}}}"
+        template_data = template_data.replace(placeholder, value)
+
+    return template_data
+
+
+def validate_paths(*paths):
+    """Validate that all provided paths exist."""
+    for path in paths:
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Path '{path}' not found.")
+
+
+def create_required_folders(base_dir, folders):
+    """Create required folders inside a base directory."""
+    for folder in folders:
+        destination_folder = os.path.join(base_dir, folder)
+        os.makedirs(destination_folder, exist_ok=True)
+        sample_file_path = os.path.join(destination_folder, "README.md")
+        with open(sample_file_path, 'w', encoding='utf-8') as sample_file:
+            sample_file.write(f"This is a sample file for {folder}.")
+
+
+def generate_output(validated_data, output_dir):
+    """Dynamically generate output filename and folder structure."""
+    cluster_name = validated_data.get("CLUSTER_NAME")
+    if not cluster_name:
+        raise ValueError("CLUSTER_NAME is missing from the input data.")
+
+    cluster_output_dir = os.path.join(output_dir, cluster_name)
+    os.makedirs(cluster_output_dir, exist_ok=True)
+
+    create_required_folders(cluster_output_dir, ["namespaces", "config", "rbac", "network"])
+
+    output_file_name = f"{cluster_name}.yaml"
+    output_file_path = os.path.join(cluster_output_dir, output_file_name)
+    logging.info("Output file path: %s", output_file_path)
+
+    return output_file_path
+
+
+def write_output(output_file_path, output_data):
+    """Write the processed template data to an output YAML file."""
+    try:
+        with open(output_file_path, 'w', encoding='utf-8') as file_handle:
+            file_handle.write(output_data)
+        logging.info("Generated manifest %s", output_file_path)
+    except IOError as e:
+        logging.error("Error writing to %s manifest file with %s", output_file_path, e)
+        raise
+
+
+def process_file(input_file, output_dir):
+    """Process a single input file dynamically based on the spec."""
+    try:
+        input_data = load_file(input_file)
+
+        # Dynamically get the correct spec file
+        spec_file = get_spec_file(input_data)
+        spec_data = load_file(spec_file)
+
+        template_file = spec_data['cluster']['clusterDefinition']['template']
+        mapping_file = "../../../Cluster-artifacts/Templates/FieldMapping.json"
+
+        validate_paths(mapping_file, template_file)
+
+        field_mapping = load_file(mapping_file)
+        with open(template_file, 'r', encoding='utf-8') as template_handle:
+            template_data = template_handle.read()
+
+        validate_input(input_data, field_mapping)
+        output_data = replace_placeholders(template_data, input_data)
+        output_file_path = generate_output(input_data, output_dir)
+        write_output(output_file_path, output_data)
+
+    except FileNotFoundError as e:
+        logging.error("File not found: %s. Error: %s", input_file, e)
+    except json.JSONDecodeError as e:
+        logging.error("JSON decode error in file %s. Error: %s", input_file, e)
+    except ValueError as e:
+        logging.error("Value error in file %s. Error: %s", input_file, e)
+    except IOError as e:
+        logging.error("I/O error in file %s. Error: %s", input_file, e)
+    except Exception as e:
+        logging.error("Unexpected error in file %s. Error: %s", input_file, e)
+        raise
+
+
+def main():
+    """Main function to process multiple input files passed as arguments."""
+    if len(sys.argv) < 3:
+        print("Usage: python3 change.py input.json output_directory")
+        sys.exit(1)
+
+    input_files = sys.argv[1:-1]
+    output_dir = sys.argv[-1]
+
+    for input_file in input_files:
+        if not os.path.exists(input_file):
+            logging.error("Input file '%s' not found.", input_file)
+            continue
+
+        try:
+            process_file(input_file, output_dir)
+        except FileNotFoundError as e:
+            logging.error("File not found: %s. Error: %s", input_file, e)
+        except json.JSONDecodeError as e:
+            logging.error("JSON decode error %s. Error: %s", input_file, e)
+        except ValueError as e:
+            logging.error("Value error in file %s. Error: %s", input_file, e)
+        except IOError as e:
+            logging.error("I/O error in file %s. Error: %s", input_file, e)
+        except Exception as e:
+            logging.error("Unexpected error file %s. Error: %s", input_file, e)
+            raise
+
+
+if __name__ == "__main__":
+    main()
+
 git fetch origin
 git checkout $BRANCH_NAME
 
