@@ -1,3 +1,29 @@
+- name: Extract Parent Folder
+  run: |
+    # Extract the parent folder of the input JSON file
+    parent_folder=$(basename $(dirname $(dirname "$NEW_FILES")))
+    echo "Parent folder: $parent_folder"
+    echo "BASE_FOLDER=$parent_folder" >> $GITHUB_ENV
+
+- name: Choose Environment and Load Variables
+  run: |
+    # Load the correct environment file based on the parent folder
+    if [ "$BASE_FOLDER" = "Clusters-Dev" ]; then
+      ENV_FILE="./workflow-config/dev.env"
+    elif [ "$BASE_FOLDER" = "Clusters-NonProd" ]; then
+      ENV_FILE="./workflow-config/nonprod.env"
+    elif [ "$BASE_FOLDER" = "Clusters-Prod" ]; then
+      ENV_FILE="./workflow-config/prod.env"
+    else
+      echo "Invalid parent folder: $BASE_FOLDER"
+      exit 1
+    fi
+
+    # Export the variables from the chosen environment file
+    echo "Loading environment variables from $ENV_FILE"
+    export $(grep -v '^#' "$ENV_FILE" | xargs)
+
+
 import json
 import os
 import sys
