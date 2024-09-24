@@ -1,3 +1,26 @@
+echo "OUTPUT_DIR=$OUTPUT_DIR" >> $GITHUB_ENV
+echo "MAPPING_PATH=$MAPPING_PATH" >> $GITHUB_ENV
+echo "TEMPLATE_PATH=$TEMPLATE_PATH" >> $GITHUB_ENV
+
+run: |
+  echo "Running Python script with the following arguments:"
+  echo "Input: ${NEW_FILES}"
+  echo "Output: $OUTPUT_DIR"
+  echo "Mapping: $MAPPING_PATH"
+  echo "Template: $TEMPLATE_PATH"
+  
+  python Automation/AKS/Workload-Cluster/main.py \
+    --input "${NEW_FILES}" \
+    --output "$OUTPUT_DIR" \
+    --mapping "$MAPPING_PATH" \
+    --template "$TEMPLATE_PATH"
+
+
+echo "OUTPUT_DIR: $OUTPUT_DIR"
+echo "MAPPING_PATH: $MAPPING_PATH"
+echo "TEMPLATE_PATH: $TEMPLATE_PATH"
+
+
 name: mainv2
 
 on:
