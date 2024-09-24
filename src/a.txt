@@ -1,4 +1,36 @@
-      - name: Load Secrets for Specific Environment
+- name: Set environment-specific secrets
+  run: |
+    # Load environment-specific secrets based on the parent folder
+    if [ "$BASE_FOLDER" = "Clusters-Dev" ]; then
+      echo "ARGOPWD=${{ secrets.DEV_ARGOPWD }}" >> $GITHUB_ENV
+      echo "GITHUB_APP_ID=${{ secrets.VAM_G_APP_ID_DEV }}" >> $GITHUB_ENV
+      echo "INSTALLATION_ID=${{ secrets.INSTALLATION_ID_DEV }}" >> $GITHUB_ENV
+      echo "GITHUB_APP_PRIVATE_KEY=${{ secrets.VAM_G_PRIVATE_KEY_DEV }}" >> $GITHUB_ENV
+    elif [ "$BASE_FOLDER" = "Clusters-NonProd" ]; then
+      echo "ARGOPWD=${{ secrets.NONPROD_ARGOPWD }}" >> $GITHUB_ENV
+      echo "GITHUB_APP_ID=${{ secrets.VAM_G_APP_ID_NONPROD }}" >> $GITHUB_ENV
+      echo "INSTALLATION_ID=${{ secrets.INSTALLATION_ID_NONPROD }}" >> $GITHUB_ENV
+      echo "GITHUB_APP_PRIVATE_KEY=${{ secrets.VAM_G_PRIVATE_KEY_NONPROD }}" >> $GITHUB_ENV
+    elif [ "$BASE_FOLDER" = "Clusters-Prod" ]; then
+      echo "ARGOPWD=${{ secrets.PROD_ARGOPWD }}" >> $GITHUB_ENV
+      echo "GITHUB_APP_ID=${{ secrets.VAM_G_APP_ID_PROD }}" >> $GITHUB_ENV
+      echo "INSTALLATION_ID=${{ secrets.INSTALLATION_ID_PROD }}" >> $GITHUB_ENV
+      echo "GITHUB_APP_PRIVATE_KEY=${{ secrets.VAM_G_PRIVATE_KEY_PROD }}" >> $GITHUB_ENV
+    elif [ "$BASE_FOLDER" = "Clusters-sb" ]; then
+      echo "ARGOPWD=${{ secrets.SB_ARGOPWD }}" >> $GITHUB_ENV
+      echo "GITHUB_APP_ID=${{ secrets.VAM_G_APP_ID_SB }}" >> $GITHUB_ENV
+      echo "INSTALLATION_ID=${{ secrets.INSTALLATION_ID_SB }}" >> $GITHUB_ENV
+      echo "GITHUB_APP_PRIVATE_KEY=${{ secrets.VAM_G_PRIVATE_KEY_SB }}" >> $GITHUB_ENV
+    else
+      echo "Invalid environment"
+      exit 1
+    fi
+  shell: bash
+
+
+
+
+- name: Load Secrets for Specific Environment
         run: |
           # Based on the parent folder, load the corresponding environment-specific secrets
           if [ "$BASE_FOLDER" = "Clusters-Dev" ]; then
