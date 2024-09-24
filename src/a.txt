@@ -1,3 +1,6 @@
+ echo "${{ secrets.DEV_GITHUB_APP_PRIVATE_KEY }}" > private_key.pem
+      echo "GITHUB_APP_PRIVATE_KEY_FILE=private_key.pem" >> $GITHUB_ENV
+
 - name: Set environment-specific secrets
   run: |
     # Load environment-specific secrets based on the parent folder
