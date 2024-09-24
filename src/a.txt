@@ -1,3 +1,36 @@
+      - name: Load Secrets for Specific Environment
+        run: |
+          # Based on the parent folder, load the corresponding environment-specific secrets
+          if [ "$BASE_FOLDER" = "Clusters-Dev" ]; then
+            echo "ARGOPWD=${{ secrets.DEV_ARGOPWD }}" >> $GITHUB_ENV
+            echo "KUBECONF=${{ secrets.DEV_KUBECONF }}" >> $GITHUB_ENV
+            echo "GITHUB_APP_ID=${{ secrets.VAM_G_APP_ID }}" >> $GITHUB_ENV
+            echo "INSTALLATION_ID=${{ secrets.INSTALLATION_ID }}" >> $GITHUB_ENV
+            echo "GITHUB_APP_PRIVATE_KEY=${{ secrets.VAM_G_PRIVATE_KEY }}" >> $GITHUB_ENV
+          elif [ "$BASE_FOLDER" = "Clusters-NonProd" ]; then
+            echo "ARGOPWD=${{ secrets.NONPROD_ARGOPWD }}" >> $GITHUB_ENV
+            echo "KUBECONF=${{ secrets.NONPROD_KUBECONF }}" >> $GITHUB_ENV
+            echo "GITHUB_APP_ID=${{ secrets.VAM_NONPROD_G_APP_ID }}" >> $GITHUB_ENV
+            echo "INSTALLATION_ID=${{ secrets.NONPROD_INSTALLATION_ID }}" >> $GITHUB_ENV
+            echo "GITHUB_APP_PRIVATE_KEY=${{ secrets.VAM_NONPROD_G_PRIVATE_KEY }}" >> $GITHUB_ENV
+          elif [ "$BASE_FOLDER" = "Clusters-Prod" ]; then
+            echo "ARGOPWD=${{ secrets.PROD_ARGOPWD }}" >> $GITHUB_ENV
+            echo "KUBECONF=${{ secrets.PROD_KUBECONF }}" >> $GITHUB_ENV
+            echo "GITHUB_APP_ID=${{ secrets.VAM_PROD_G_APP_ID }}" >> $GITHUB_ENV
+            echo "INSTALLATION_ID=${{ secrets.PROD_INSTALLATION_ID }}" >> $GITHUB_ENV
+            echo "GITHUB_APP_PRIVATE_KEY=${{ secrets.VAM_PROD_G_PRIVATE_KEY }}" >> $GITHUB_ENV
+          elif [ "$BASE_FOLDER" = "Clusters-sb" ]; then
+            echo "ARGOPWD=${{ secrets.SB_ARGOPWD }}" >> $GITHUB_ENV
+            echo "KUBECONF=${{ secrets.SB_KUBECONF }}" >> $GITHUB_ENV
+            echo "GITHUB_APP_ID=${{ secrets.VAM_SB_G_APP_ID }}" >> $GITHUB_ENV
+            echo "INSTALLATION_ID=${{ secrets.SB_INSTALLATION_ID }}" >> $GITHUB_ENV
+            echo "GITHUB_APP_PRIVATE_KEY=${{ secrets.VAM_SB_G_PRIVATE_KEY }}" >> $GITHUB_ENV
+          else
+            echo "Invalid environment"
+            exit 1
+          fi
+
+
 echo "OUTPUT_DIR=$OUTPUT_DIR" >> $GITHUB_ENV
 echo "MAPPING_PATH=$MAPPING_PATH" >> $GITHUB_ENV
 echo "TEMPLATE_PATH=$TEMPLATE_PATH" >> $GITHUB_ENV
