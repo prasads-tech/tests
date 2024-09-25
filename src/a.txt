@@ -49,6 +49,41 @@ graph TD
     AF --> AG[End]
 
 
+Descriptions of Each Step:
+Push to feature/XYZ branch: The developer pushes code to the feature branch, which triggers the pipeline.
+Checkout code: The GitHub Action checks out the latest code from the repository.
+Set up jq: jq is installed to handle JSON file processing in the next steps.
+Set up Python: Python is set up to run Python scripts in the pipeline.
+Cache Python dependencies: Dependencies from previous runs are cached to reduce build time.
+Install dependencies: Any remaining or new dependencies are installed.
+Set up Git: Git is configured to allow later commits and pushes.
+Get newly added or modified JSON files: Identify new or modified input.json files to be processed.
+Extract Parent Folder: Extract the folder from the JSON files to prepare for environment-specific processing.
+Choose Environment and Load Variables: Based on the environment (dev/prod), load the corresponding variables.
+Set environment-specific secrets: Load environment-specific secrets and sensitive data.
+List and Process JSON Files: List the JSON files that will be processed and validate them.
+Run main Python script: The main Python script is executed, generating the Kubernetes manifests.
+Generate JWT for GitHub App: A JWT is generated for authenticating with GitHub as a GitHub App.
+Get GitHub Installation Access Token: Use the JWT to get an installation access token for interacting with GitHub.
+Configure Git: Git is configured with the required credentials for committing and pushing changes.
+Stash untracked files: Temporarily stash any untracked files to avoid conflicts when switching branches.
+Switch to a new branch: Switch to a new feature branch where the changes will be pushed.
+Pull changes and rebase: Pull changes from the remote repository and rebase the current branch to avoid conflicts.
+Reapply stashed changes: Reapply the stashed changes to the new branch.
+Commit and push changes: Commit and push the changes (including manifests) to the new branch.
+Install ArgoCD CLI: Install the ArgoCD CLI for managing ArgoCD operations.
+Login to ArgoCD: Log into ArgoCD to manage applications and clusters.
+Create an ArgoCD app for the workload cluster: Create an ArgoCD application for deploying the workload cluster.
+Sync ArgoCD app: Sync the ArgoCD app to ensure that the workload cluster is deployed correctly.
+Install kubectl: Install the kubectl CLI to interact with the Kubernetes cluster.
+Configure kubectl: Configure kubectl with credentials to manage the cluster.
+Install clusterctl: Install the clusterctl CLI for managing Kubernetes clusters.
+Verify workload cluster is provisioned: Verify that the workload cluster has been successfully provisioned.
+Attach ACR to AKS cluster: Attach the Azure Container Registry (ACR) to the AKS cluster for pulling container images.
+Add a cluster to ArgoCD: Add the new AKS cluster to ArgoCD for application management.
+Verify that ArgoCD apps are synced: Ensure that all ArgoCD applications are synced with the current configuration.
+End: The process ends after successful deployment and verification.
+
 
 echo "${{ secrets.DEV_GITHUB_APP_PRIVATE_KEY }}" > private_key.pem
       echo "GITHUB_APP_PRIVATE_KEY_FILE=private_key.pem" >> $GITHUB_ENV
