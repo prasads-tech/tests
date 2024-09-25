@@ -1,4 +1,56 @@
- echo "${{ secrets.DEV_GITHUB_APP_PRIVATE_KEY }}" > private_key.pem
+graph TD
+    A[Start: Push to feature/dv1 branch] --> B[Checkout code]
+
+    subgraph Setup Environment
+        B --> C[Set up jq]
+        C --> D[Set up Python 3.9]
+        D --> E[Cache Python dependencies]
+        E --> F[Install dependencies]
+        F --> G[Set up Git]
+    end
+
+    G --> H[Get newly added or modified JSON files]
+
+    subgraph Prepare Inputs
+        H --> I[Extract Parent Folder]
+        I --> J[Choose Environment and Load Variables]
+        J --> K[Set environment-specific secrets]
+        K --> L[List and Process JSON Files]
+    end
+
+    L --> M[Run main Python script]
+
+    subgraph Git Operations
+        M --> N[Generate JWT for GitHub App]
+        N --> O[Get GitHub Installation Access Token]
+        O --> P[Configure git]
+        P --> Q[Stash untracked files]
+        Q --> R[Switch to new branch]
+        R --> S[Pull changes and rebase]
+        S --> T[Reapply stashed changes]
+        T --> U[Commit and push changes]
+    end
+
+    U --> V[Install ArgoCD CLI]
+
+    subgraph ArgoCD Operations
+        V --> W[Login to ArgoCD]
+        W --> X[Create ArgoCD app for workload cluster]
+        X --> Y[Sync ArgoCD app]
+        Y --> Z[Install kubectl]
+        Z --> AA[Configure kubectl]
+        AA --> AB[Install clusterctl]
+        AB --> AC[Verify workload cluster is provisioned]
+        AC --> AD[Attach ACR to AKS cluster]
+        AD --> AE[Add cluster to ArgoCD]
+        AE --> AF[Verify ArgoCD apps are synced]
+    end
+
+    AF --> AG[End]
+
+
+
+echo "${{ secrets.DEV_GITHUB_APP_PRIVATE_KEY }}" > private_key.pem
       echo "GITHUB_APP_PRIVATE_KEY_FILE=private_key.pem" >> $GITHUB_ENV
 
 - name: Set environment-specific secrets
