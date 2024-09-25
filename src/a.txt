@@ -1,3 +1,8 @@
+      - name: Set up yq
+        run: |
+          sudo wget https://github.com/mikefarah/yq/releases/download/v4.16.2/yq_linux_amd64 -O /usr/bin/yq
+          sudo chmod +x /usr/bin/yq
+
 graph TD
     A[Start: Push to feature/dv1 branch] --> B[Checkout code]
 
