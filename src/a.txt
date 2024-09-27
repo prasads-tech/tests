@@ -1,4 +1,192 @@
-  "CLUSTER_LOCATION": {
+import os
+import json
+import copy
+import argparse
+import logging
+import re
+from dotenv import load_dotenv
+import yaml
+from pathlib import Path
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Get paths from environment variables
+mapping_file = os.getenv("MAPPING_PATH")
+template_file = os.getenv("TEMPLATE_PATH")
+output_dir = os.getenv("OUTPUT_DIR")
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+def load_json(file_path: str) -> dict:
+    """Loads and strips JSON data from a file."""
+    try:
+        with open(file_path, "r", encoding="utf-8") as file:
+            # Ensure all values are stripped of leading/trailing whitespace
+            data = json.load(file)
+            return {k: v.strip() if isinstance(v, str) else v for k, v in data.items()}
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logging.error("Error loading %s JSON file: %s", file_path, e)
+        raise
+
+
+def validate_field(key, value, properties):
+    """Validates field based on mapping properties."""
+    if properties["required"] and (value is None or value.strip() == ""):
+        raise ValueError(f"Mandatory field '{key}' is missing.")
+
+    # Apply strip() to value if it's a string
+    value = value.strip() if isinstance(value, str) else value
+
+    # Regex validation
+    if "regex" in properties and not re.match(properties["regex"], value):
+        raise ValueError(f"Field '{key}' does not match the pattern {properties['regex']}")
+
+    # Length validation
+    if "min_length" in properties and len(value) < properties["min_length"]:
+        raise ValueError(f"Field '{key}' is shorter than minimum length {properties['min_length']}")
+    if "max_length" in properties and len(value) > properties["max_length"]:
+        raise ValueError(f"Field '{key}' exceeds maximum length {properties['max_length']}")
+
+    return value
+
+
+def validate_and_apply_defaults(mapping: dict, inputs: dict) -> tuple:
+    """Validates input values based on the mapping and applies defaults."""
+    validated_data = {}
+    
+    logging.debug("Validating common fields...")
+    
+    for key, properties in mapping.get("common", {}).items():
+        value = inputs.get(key, properties.get("default"))
+        validated_data[key] = validate_field(key, value, properties)
+
+    manifests_data = {}
+    for manifest, fields in mapping.get("manifests", {}).items():
+        manifest_data = {}
+        for key, properties in fields.items():
+            value = inputs.get(key, properties.get("default"))
+            manifest_data[key] = validate_field(key, value, properties)
+        manifests_data.update(manifest_data)
+
+    logging.info("Input validation successful.")
+    return validated_data, manifests_data
+
+
+def replace_placeholders(yaml_content, replacements):
+    """Replaces placeholders in the YAML content with actual values."""
+    if isinstance(yaml_content, dict):
+        return {k: replace_placeholders(v, replacements) for k, v in yaml_content.items()}
+    if isinstance(yaml_content, list):
+        return [replace_placeholders(i, replacements) for i in yaml_content]
+    if isinstance(yaml_content, str):
+        for key, value in replacements.items():
+            placeholder = f"${{{key}}}"
+            if placeholder in yaml_content:
+                logging.debug(f"Replacing {placeholder} with {value}")
+                yaml_content = yaml_content.replace(placeholder, str(value))
+        return yaml_content
+    return yaml_content
+
+
+def update_yaml_manifest(yaml_template: str, validated_data: dict, manifests_data: dict) -> str:
+    """Updates the YAML manifest with the validated input values."""
+    yaml_docs = yaml.safe_load_all(yaml_template)
+    updated_docs = []
+
+    for doc in yaml_docs:
+        updated_doc = copy.deepcopy(doc)
+        replacements = {**validated_data, **manifests_data}
+        updated_doc = replace_placeholders(updated_doc, replacements)
+        updated_docs.append(updated_doc)
+
+    logging.info("YAML manifest successfully updated with input values.")
+    return "---\n".join([yaml.safe_dump(doc) for doc in updated_docs])
+
+
+def generate_output(validated_data, output):
+    """Dynamically generate output directory and filename based on input JSON data."""
+    cluster_name = validated_data.get("CLUSTER_NAME")
+    base_output_dir = Path(output)
+
+    output_dirs = base_output_dir / f"{cluster_name}"
+    output_dirs.mkdir(parents=True, exist_ok=True)
+
+    # Define required subdirectories
+    required_folders = ["namespaces", "config", "rbac", "network"]
+
+    for folder in required_folders:
+        destination_folder = output_dirs / folder
+        destination_folder.mkdir(exist_ok=True)
+
+        sample_file_path = destination_folder / "README.md"
+        with sample_file_path.open("w", encoding="utf-8") as sample_file:
+            sample_file.write(f"This is a sample file for {folder}.")
+
+    output_file_name = f"{cluster_name}.yaml"
+    return output_dirs / output_file_name
+
+
+def handle_arguments():
+    """Handle command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Generate Kubernetes cluster definitions from templates."
+    )
+    parser.add_argument("--input", required=True, help="Path to the input JSON file")
+    parser.add_argument("--output", required=True, help="Path to the output directory")
+    parser.add_argument("--mapping", required=True, help="Path to the mapping JSON file")
+    parser.add_argument("--template", required=True, help="Path to the YAML template file")
+
+    return parser.parse_args()
+
+
+def main():
+    """Main function to run the program."""
+    args = handle_arguments()
+
+    try:
+        # Ensure input, mapping, and template paths exist
+        for path in [args.input, args.mapping, args.template]:
+            if not os.path.isfile(path):
+                raise FileNotFoundError(f"File '{path}' does not exist.")
+
+        # Load files and validate data
+        logging.info("Loading input, mapping, and template files...")
+        mapping = load_json(args.mapping)
+        inputs = load_json(args.input)
+        validated_data, manifests_data = validate_and_apply_defaults(mapping, inputs)
+
+        with open(args.template, "r", encoding="utf-8") as yaml_file:
+            yaml_template = yaml_file.read()
+
+        updated_yaml = update_yaml_manifest(yaml_template, validated_data, manifests_data)
+
+        # Generate output
+        output_file_path = generate_output(validated_data, args.output)
+
+        # Save the updated YAML
+        with open(output_file_path, "w", encoding="utf-8") as updated_yaml_file:
+            updated_yaml_file.write(updated_yaml)
+
+        logging.info("Cluster definition saved to '%s'.", output_file_path)
+
+    except FileNotFoundError as fnf_error:
+        logging.error(fnf_error)
+    except ValueError as val_error:
+        logging.error("Validation error: %s", val_error)
+    except Exception as e:
+        logging.error("An unexpected error occurred: %s", e)
+        raise
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+"CLUSTER_LOCATION": {
     "required": true,
     "regex": "^[a-zA-Z0-9-]+$",
     "min_length": 3,
