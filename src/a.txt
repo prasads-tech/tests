@@ -1,3 +1,43 @@
+      - name: Set up Git
+        run: |
+          git fetch --prune --unshallow || git fetch --prune --depth=50
+
+      - name: Get newly added or modified files
+        run: |
+          # Fetch the latest commit and attempt to fetch previous commit
+          new_commit=$(git rev-parse HEAD)
+
+          # Check if it's the first commit (i.e., no previous commit)
+          if git rev-parse HEAD^ > /dev/null 2>&1; then
+            prev_commit=$(git rev-parse HEAD^)
+          else
+            echo "No previous commit found, using the initial commit"
+            prev_commit=$new_commit
+          fi
+
+          # Get the list of newly added or modified json files
+          new_files=$(git diff --name-only --diff-filter=AM $prev_commit $new_commit -- '*.json')
+
+          # Check if no new or modified files are found
+          if [ -z "$new_files" ]; then
+            echo "No input json files found"
+            exit 1
+          fi
+
+          # Extract the filename without path and extension
+          branch_name=$(basename "$new_files" | sed 's/\(.*\)\..*/\1/')
+          
+          # Get the User information
+          committer_name=$(git log -1 --pretty=format:'%an')
+          committer_email=$(git log -1 --pretty=format:'%ae')
+
+          # Output the results
+          echo "::set-output name=new_files::$new_files"
+          echo "::set-output name=branch_name::$branch_name"
+          echo "::set-output name=committer_name::$committer_name"
+          echo "::set-output name=committer_email::$committer_email"
+
+
 name: Main
 
 on:
