@@ -1,3 +1,180 @@
+# GitHub Actions Workflow for Automated Workload Cluster Manifest Generation
+# Author: [Your Name]
+# Created on: [Date]
+# Last Updated: [Date]
+# Description: This workflow automates the process of generating Kubernetes manifests 
+# for AKS workload clusters. It handles new/modified input JSON files, processes them using
+# a Python script, and pushes the output to a new feature branch with an automated PR.
+
+name: Automated Workload Cluster Manifest Generation
+
+# This workflow is triggered when a JSON file is pushed to the repository.
+on:
+  push:
+    branches:
+      - error
+    paths:
+      - "*/AKS/Input/*.json"
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  trigger_on:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        task: [setup_code, get_files, choose_env, main_script, push_pr]
+
+    steps:
+      # Checking out the code from the repository
+      - name: Checkout code
+        if: matrix.task == 'setup_code'
+        uses: actions/checkout@v3
+        with:
+          # Optionally add author information here
+          ref: ${{ github.ref }}
+
+      # Setting up Python environment for script execution
+      - name: Set up Python
+        if: matrix.task == 'setup_code'
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      # Caching Python packages for faster execution in future runs
+      - name: Cache Python packages
+        if: matrix.task == 'setup_code'
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # Installing necessary dependencies
+      - name: Install dependencies
+        if: matrix.task == 'setup_code'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Fetching Git history for accurate diffing
+      - name: Set up Git
+        if: matrix.task == 'setup_code'
+        run: git fetch --prune --unshallow
+
+      # Fetching new or modified JSON files from the commit
+      - name: Get newly added or modified files
+        if: matrix.task == 'get_files'
+        run: |
+          new_commit=$(git rev-parse HEAD)
+          prev_commit=$(git rev-parse HEAD^)
+          new_files=$(git diff --name-only --diff-filter=AM $prev_commit $new_commit -- '*.json')
+          echo "NEW_FILES=$new_files" >> $GITHUB_ENV
+          branch_name=$(basename "$new_files" | sed 's/\(.*\)\..*/\1/')
+          echo "BRANCH_NAME=$branch_name" >> $GITHUB_ENV
+          committer_name=$(git log -1 --pretty=format:'%an')
+          committer_email=$(git log -1 --pretty=format:'%ae')
+          echo "COMMITTER_NAME=$committer_name" >> $GITHUB_ENV
+          echo "COMMITTER_EMAIL=$committer_email" >> $GITHUB_ENV
+
+      # Determining environment and loading specific configuration based on folder structure
+      - name: Choose Environment and Load Variables
+        if: matrix.task == 'choose_env'
+        run: |
+          parent_folder=$(basename $(dirname $(dirname $(dirname "$NEW_FILES"))))
+          echo "BASE_FOLDER=$parent_folder" >> $GITHUB_ENV
+          case "$BASE_FOLDER" in
+            "Clusters-Dev") ENV_FILE="./workflow-config/dev.env" ;;
+            "Clusters-NonProd") ENV_FILE="./workflow-config/non-prod.env" ;;
+            "Clusters-Prod") ENV_FILE="./workflow-config/prod.env" ;;
+            "Clusters-sb") ENV_FILE="./workflow-config/sb.env" ;;
+            *) echo "Invalid parent folder: $BASE_FOLDER"; exit 1 ;;
+          esac
+          if [ -f $ENV_FILE ]; then
+            while IFS= read -r line; do
+              [[ ! $line =~ ^# && $line =~ = ]] && echo "$line" >> $GITHUB_ENV
+            done < $ENV_FILE
+          else
+            echo "$ENV_FILE not found!"
+            exit 1
+          fi
+
+      # Executing the main Python script to process input and generate manifests
+      - name: Run main script
+        if: matrix.task == 'main_script'
+        run: |
+          python Automation/AKS/Workload-Cluster/main.py \
+            --input "${NEW_FILES}" \
+            --output "$OUTPUT_DIR" \
+            --mapping "$MAPPING_PATH" \
+            --template "$TEMPLATE_PATH"
+
+      # Generating JWT token for GitHub App authentication
+      - name: Generate JWT for GitHub App
+        if: matrix.task == 'push_pr'
+        env:
+          GITHUB_APP_ID: ${{ secrets.VAM_G_APP_ID }}
+          GITHUB_APP_PRIVATE_KEY: ${{ secrets.VAM_G_PRIVATE_KEY }}
+        run: |
+          HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | openssl base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+          PAYLOAD=$(echo -n '{"iat":'$(date +%s)',"exp":'$(($(date +%s) + 600))',"iss":"'"${GITHUB_APP_ID}"'"}' | openssl base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+          echo "$GITHUB_APP_PRIVATE_KEY" > private_key.pem
+          JWT_SIGNATURE=$(echo -n "${HEADER}.${PAYLOAD}" | openssl dgst -sha256 -sign private_key.pem | openssl base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+          JWT="${HEADER}.${PAYLOAD}.${JWT_SIGNATURE}"
+          echo "JWT=${JWT}" >> $GITHUB_ENV
+          rm -rf private_key.pem
+
+      # Fetching access token for GitHub App and configuring git user details
+      - name: Get GitHub Installation Access Token
+        if: matrix.task == 'push_pr'
+        env:
+          INSTALLATION_ID: ${{ secrets.INSTALLATION_ID }}
+        run: |
+          INSTALLATION_TOKEN=$(curl -X POST \
+            -H "Authorization: Bearer ${JWT}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens \
+            | jq -r .token)
+          echo "ACCESS_TOKEN=${INSTALLATION_TOKEN}" >> $GITHUB_ENV
+
+      - name: Configure git
+        if: matrix.task == 'push_pr'
+        run: |
+          git config user.name "$COMMITTER_NAME"
+          git config user.email "$COMMITTER_EMAIL"
+
+      # Creating a new branch, committing changes, and pushing the branch
+      - name: Switch to a new branch and push changes
+        if: matrix.task == 'push_pr'
+        run: |
+          git checkout -b $BRANCH_NAME
+          git pull origin $BRANCH_NAME --rebase || true
+          git add .
+          git commit -m "Automated commit by $COMMITTER_NAME"
+          git push https://x-access-token:${{ secrets.ACCESS_TOKEN }}@github.com/${{ github.repository }} $BRANCH_NAME
+
+      # Creating a pull request for the changes
+      - name: Create a Pull Request
+        if: matrix.task == 'push_pr'
+        run: |
+          PR_RESPONSE=$(curl -X POST \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/pulls \
+            -d '{
+              "title": "Automated PR",
+              "head": "'"${BRANCH_NAME}"'",
+              "base": "'"${{ github.ref_name }}"'",
+              "body": "Automated PR created by GITHUB workflow"
+            }')
+          echo "PR Response: $PR_RESPONSE"
+
+
 name: wrkl-manifest-auto
 
 on:
