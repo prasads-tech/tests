@@ -1,3 +1,189 @@
+name: wrkl-manifest-auto
+
+on:
+  push:
+    branches:
+      - error
+    paths:
+      - "*/AKS/Input/*.json"
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  trigger_on:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        task: [checkout, setup-python, jwt, git, script]
+
+    steps:
+      # Cache dependencies for faster installation
+      - name: Cache Python dependencies
+        if: matrix.task == 'setup-python'
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Checkout code (Shallow fetch)
+        if: matrix.task == 'checkout'
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.9
+        if: matrix.task == 'setup-python'
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        if: matrix.task == 'setup-python'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Get newly added or modified files
+        if: matrix.task == 'git'
+        run: |
+          new_commit=$(git rev-parse HEAD)
+          prev_commit=$(git rev-parse HEAD^)
+          new_files=$(git diff --name-only --diff-filter=AM $prev_commit $new_commit -- '*.json')
+          echo "NEW_FILES=$new_files" >> $GITHUB_ENV
+          branch_name=$(basename "$new_files" | sed 's/\(.*\)\..*/\1/')
+          echo "BRANCH_NAME=$branch_name" >> $GITHUB_ENV
+          committer_name=$(git log -1 --pretty=format:'%an')
+          committer_email=$(git log -1 --pretty=format:'%ae')
+          echo "COMMITTER_NAME=$committer_name" >> $GITHUB_ENV
+          echo "COMMITTER_EMAIL=$committer_email" >> $GITHUB_ENV
+
+      - name: Extract Parent Folder
+        if: matrix.task == 'git'
+        run: |
+          parent_folder=$(basename $(dirname $(dirname $(dirname "$NEW_FILES"))))
+          echo "BASE_FOLDER=$parent_folder" >> $GITHUB_ENV
+
+      - name: Choose Environment and Load Variables
+        if: matrix.task == 'git'
+        run: |
+          case "$BASE_FOLDER" in
+            "Clusters-Dev") ENV_FILE="./workflow-config/dev.env" ;;
+            "Clusters-NonProd") ENV_FILE="./workflow-config/non-prod.env" ;;
+            "Clusters-Prod") ENV_FILE="./workflow-config/prod.env" ;;
+            "Clusters-sb") ENV_FILE="./workflow-config/sb.env" ;;
+            *) echo "Invalid parent folder: $BASE_FOLDER"; exit 1 ;;
+          esac
+          if [ -f $ENV_FILE ]; then
+            while IFS= read -r line; do
+              [[ ! $line =~ ^# && $line =~ = ]] && echo "$line" >> $GITHUB_ENV
+            done < $ENV_FILE
+          else
+            echo "$ENV_FILE not found!"
+            exit 1
+          fi
+
+      - name: Run main Python script
+        if: matrix.task == 'script'
+        run: |
+          python Automation/AKS/Workload-Cluster/main.py \
+            --input "${NEW_FILES}" \
+            --output "$OUTPUT_DIR" \
+            --mapping "$MAPPING_PATH" \
+            --template "$TEMPLATE_PATH"
+
+      # JWT generation and GitHub App token retrieval (optimized)
+      - name: Generate JWT for GitHub App
+        if: matrix.task == 'jwt'
+        env:
+          GITHUB_APP_ID: ${{ secrets.VAM_G_APP_ID }}
+          GITHUB_APP_PRIVATE_KEY: ${{ secrets.VAM_G_PRIVATE_KEY }}
+        run: |
+          HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | openssl base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+          PAYLOAD=$(echo -n '{"iat":'$(date +%s)',"exp":'$(($(date +%s) + 600))',"iss":"'"${GITHUB_APP_ID}"'"}' | openssl base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+          echo "$GITHUB_APP_PRIVATE_KEY" > private_key.pem
+          JWT_SIGNATURE=$(echo -n "${HEADER}.${PAYLOAD}" | openssl dgst -sha256 -sign private_key.pem | openssl base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+          JWT="${HEADER}.${PAYLOAD}.${JWT_SIGNATURE}"
+          echo "JWT=${JWT}" >> $GITHUB_ENV
+
+      - name: Get GitHub Installation Access Token
+        if: matrix.task == 'jwt'
+        env:
+          GITHUB_APP_ID: ${{ secrets.VAM_G_APP_ID }}
+          INSTALLATION_ID: ${{ secrets.INSTALLATION_ID }}
+          JWT: ${{ env.JWT }}
+        run: |
+          INSTALLATION_TOKEN=$(curl -X POST \
+            -H "Authorization: Bearer ${JWT}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens \
+            | jq -r .token)
+          echo "ACCESS_TOKEN=${INSTALLATION_TOKEN}" >> $GITHUB_ENV
+
+      - name: Configure git
+        if: matrix.task == 'git'
+        run: |
+          git config user.name "$COMMITTER_NAME"
+          git config user.email "$COMMITTER_EMAIL"
+
+      - name: Stash untracked files (if any)
+        if: matrix.task == 'git'
+        run: git stash --include-untracked
+
+      - name: Switch to a new branch
+        if: matrix.task == 'git'
+        run: git checkout -b $BRANCH_NAME
+
+      - name: Pull changes and rebase
+        if: matrix.task == 'git'
+        run: |
+          git pull origin $BRANCH_NAME --rebase || true
+          git rebase --continue || git rebase --skip
+          git push --force-with-lease origin $BRANCH_NAME
+
+      - name: Reapply stashed changes (if applicable)
+        if: matrix.task == 'git'
+        run: git stash pop || true
+
+      - name: Commit and push changes
+        if: matrix.task == 'git'
+        env:
+          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+        run: |
+          git add .
+          git commit -m "Automated commit by $COMMITTER_NAME"
+          git push https://x-access-token:${{ secrets.ACCESS_TOKEN }}@github.com/${{ github.repository }} $BRANCH_NAME
+
+      - name: Create a Pull Request
+        if: matrix.task == 'git'
+        env:
+          ACCESS_TOKEN: ${{ env.ACCESS_TOKEN }}
+        run: |
+          BASE_BRANCH_NAME=${{ github.ref_name }}
+          PR_RESPONSE=$(curl -X POST \
+              -H "Authorization: Bearer $ACCESS_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              https://api.github.com/repos/ValueMomentum-Inc/GEICOPOC-Spec/pulls \
+              -d '{
+                "title": "Automated PR",
+                "head": "'"${BRANCH_NAME}"'",
+                "base": "'"${BASE_BRANCH_NAME}"'",
+                "body": "Automated PR created by GITHUB workflow"
+              }')
+
+      - name: Debug PR Creation
+        if: matrix.task == 'git'
+        run: |
+          echo "Branch: $BRANCH_NAME"
+          echo "Repo: ${{ github.repository }}"
+          echo "PR Response: $PR_RESPONSE"
+
+
 name: Main
 
 on:
