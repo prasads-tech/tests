@@ -1,3 +1,159 @@
+name: Main
+
+on:
+  push:
+    branches:
+      - error
+    paths:
+      - "*/AKS/Input/*.json"
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  fetch_commits:
+    runs-on: ubuntu-latest
+    outputs:
+      new_files: ${{ steps.get_files.outputs.new_files }}
+      branch_name: ${{ steps.get_files.outputs.branch_name }}
+      committer_name: ${{ steps.get_files.outputs.committer_name }}
+      committer_email: ${{ steps.get_files.outputs.committer_email }}
+      parent_folder: ${{ steps.get_folder.outputs.parent_folder }}
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Get newly added or modified files
+        id: get_files
+        run: |
+          new_commit=$(git rev-parse HEAD)
+          prev_commit=$(git rev-parse HEAD^)
+          new_files=$(git diff --name-only --diff-filter=AM $prev_commit $new_commit -- '*.json')
+          if [ -z "$new_files" ]; then
+            echo "No input json files found"
+            exit 1
+          fi
+          branch_name=$(basename "$new_files" | sed 's/\(.*\)\..*/\1/')
+          committer_name=$(git log -1 --pretty=format:'%an')
+          committer_email=$(git log -1 --pretty=format:'%ae')
+
+          echo "::set-output name=new_files::$new_files"
+          echo "::set-output name=branch_name::$branch_name"
+          echo "::set-output name=committer_name::$committer_name"
+          echo "::set-output name=committer_email::$committer_email"
+
+      - name: Extract Parent Folder
+        id: get_folder
+        run: |
+          parent_folder=$(basename $(dirname $(dirname $(dirname "${{ steps.get_files.outputs.new_files }}"))))
+          echo "::set-output name=parent_folder::$parent_folder"
+
+  setup_environment:
+    needs: fetch_commits
+    runs-on: ubuntu-latest
+    outputs:
+      env_file: ${{ steps.set_env.outputs.env_file }}
+
+    steps:
+      - name: Load environment variables
+        id: set_env
+        run: |
+          case "${{ needs.fetch_commits.outputs.parent_folder }}" in
+            "Clusters-Dev") env_file="./workflow-config/dev.env" ;;
+            "Clusters-NonProd") env_file="./workflow-config/non-prod.env" ;;
+            "Clusters-Prod") env_file="./workflow-config/prod.env" ;;
+            "Clusters-sb") env_file="./workflow-config/sb.env" ;;
+            *) echo "Invalid parent folder"; exit 1 ;;
+          esac
+          if [ -f $env_file ]; then
+            echo "::set-output name=env_file::$env_file"
+          else
+            echo "$env_file not found!"
+            exit 1
+          fi
+
+  run_script:
+    needs: [fetch_commits, setup_environment]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run main script
+        env:
+          INPUT_FILE: ${{ needs.fetch_commits.outputs.new_files }}
+          OUTPUT_DIR: ${{ needs.setup_environment.outputs.env_file }}
+        run: |
+          python Automation/AKS/Workload-Cluster/main.py \
+            --input "${INPUT_FILE}" \
+            --output "$OUTPUT_DIR" \
+            --mapping "$MAPPING_PATH" \
+            --template "$TEMPLATE_PATH"
+
+  create_pr:
+    needs: run_script
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate JWT for GitHub App
+        env:
+          GITHUB_APP_ID: ${{ secrets.VAM_G_APP_ID }}
+          GITHUB_APP_PRIVATE_KEY: ${{ secrets.VAM_G_PRIVATE_KEY }}
+        run: |
+          HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | openssl base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+          PAYLOAD=$(echo -n '{"iat":'$(date +%s)',"exp":'$(($(date +%s) + 600))',"iss":"'"${GITHUB_APP_ID}"'"}' | openssl base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+          echo "$GITHUB_APP_PRIVATE_KEY" > private_key.pem
+          JWT_SIGNATURE=$(echo -n "${HEADER}.${PAYLOAD}" | openssl dgst -sha256 -sign private_key.pem | openssl base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+          JWT="${HEADER}.${PAYLOAD}.${JWT_SIGNATURE}"
+          echo "JWT=${JWT}" >> $GITHUB_ENV
+          rm -rf private_key.pem
+
+      - name: Get GitHub Installation Access Token
+        env:
+          INSTALLATION_ID: ${{ secrets.INSTALLATION_ID }}
+        run: |
+          INSTALLATION_TOKEN=$(curl -X POST \
+            -H "Authorization: Bearer ${JWT}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens \
+            | jq -r .token)
+          echo "ACCESS_TOKEN=${INSTALLATION_TOKEN}" >> $GITHUB_ENV
+
+      - name: Create Pull Request
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.ACCESS_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/pulls \
+            -d '{
+              "title": "Automated PR",
+              "head": "'"${{ needs.fetch_commits.outputs.branch_name }}"'",
+              "base": "'"${{ github.ref_name }}"'",
+              "body": "Automated PR created by GitHub Actions"
+            }'
+
+
+
 name: v1
 
 on:
