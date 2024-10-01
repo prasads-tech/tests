@@ -1,1 +1,47 @@
 a
+
+# GitHub Actions Workflow: Try
+
+This workflow is triggered on pushes to the `test` branch for changes in YAML files located in the `AKS/Workload` directory.
+
+## Workflow Steps
+
+1. **Checkout code**: Uses the `actions/checkout` action to pull the code into the workflow environment.
+
+2. **Set up Git**: Fetches the latest commit history to ensure all changes are available.
+
+3. **Get newly added or modified YAML files**: Checks for newly added or modified YAML files between the last and the current commit. It saves the filenames and the base name (without the path and extension) in environment variables.
+
+4. **Extract Parent Folder**: Determines the grandparent directory of the modified YAML files to set the environment context.
+
+5. **Choose Environment and Load Variables**: Based on the parent folder, it selects the appropriate environment variable file to load configurations.
+
+6. **Set environment-specific secrets**: Loads secrets specific to the environment, such as ArgoCD credentials, from GitHub secrets.
+
+7. **List and Process JSON Files**: Prepares to process the corresponding JSON file based on the YAML file that was modified.
+
+8. **Install ArgoCD CLI**: Removes any existing ArgoCD CLI installation.
+
+9. **Login ArgoCD**: Authenticates with the ArgoCD server.
+
+10. **Create ArgoCD app to install workload cluster**: Sets up the ArgoCD application for the workload cluster.
+
+11. **Verify ArgoCD apps to install workload clusters is synced**: Checks if the ArgoCD application sync is successful.
+
+12. **Install kubectl**: Installs the Kubernetes command-line tool.
+
+13. **Setting up kubectl**: Configures Kubernetes access based on the environment.
+
+14. **Install clusterctl**: Installs the Cluster API tool.
+
+15. **Verify if workload cluster is provisioned**: Polls to check if the workload cluster is in a provisioned state.
+
+16. **Attaching ACR**: Clears Azure account information to prepare for attaching the Azure Container Registry.
+
+17. **Add cluster to ArgoCD**: Adds the workload cluster to ArgoCD, ensuring it’s managed.
+
+18. **Verify ArgoCD apps are synced**: Waits for the ArgoCD applications to be fully synced.
+
+## Conclusion
+
+This workflow automates the deployment and management of workloads in a Kubernetes cluster using ArgoCD, ensuring that configurations are tracked and applied efficiently.
