@@ -1,3 +1,39 @@
+# GitHub Actions Workflow: Test
+
+This workflow is triggered on pushes to the `test` branch for changes in JSON files located in the `AKS/Input` directory.
+
+## Workflow Steps
+
+1. **Checkout code**: Uses the `actions/checkout` action to pull the repository code into the workflow environment.
+
+2. **Set up Python**: Configures the environment with Python version 3.12.
+
+3. **Install dependencies**: Upgrades pip and installs the required dependencies from `requirements.txt`.
+
+4. **Set up Git**: Fetches the latest commit history for a complete view of changes.
+
+5. **Get newly added or modified files**: Identifies JSON files added or modified in the last commit, saving their names and relevant commit information to environment variables.
+
+6. **Extract Parent Folder**: Determines the grandparent directory of the modified JSON files for environmental context.
+
+7. **Choose Environment and Load Variables**: Loads environment-specific configuration variables based on the parent folder.
+
+8. **Run main script**: Executes a Python script with the newly added or modified files as input.
+
+9. **Generate JWT for GitHub App**: Creates a JSON Web Token for authenticating a GitHub App to interact with the GitHub API.
+
+10. **Get GitHub Installation Access Token**: Uses the generated JWT to obtain an access token for the GitHub App installation.
+
+11. **Configure git**: Sets the Git user configuration, stashes uncommitted changes, and manages branches for committing changes.
+
+12. **Commit and push changes**: Stages and commits any changes made by the script, pushing them to the new branch created.
+
+13. **Create a Pull Request**: Opens a pull request from the newly created branch to the base branch with a descriptive title and body.
+
+## Conclusion
+
+This workflow automates the process of modifying files in a repository based on JSON input, creating a new branch, and managing the changes through a pull request to streamline collaboration and code reviews.
+
 a
 
 # GitHub Actions Workflow: Try
