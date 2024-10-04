@@ -1,3 +1,45 @@
+{
+  "CLUSTER_NAME": "test-cluster",
+  "CLUSTER_NAMESPACE": "test-namespace",
+  "AUTOUPGRADE_TYPE": "stable",  // node-image, none, patch, rapid, stable
+  "TAG_KEY": "env",
+  "TAG_VALUE": "testing",
+  "CLUSTER_LOCATION": "eastus",
+  "AZURE_RESOURCE_GROUP": "test-resource-group", // for custom template only.
+  "AZURE_SUBSCRIPTION_ID": "12345678-1234-1234-1234-123456789abc",
+  "KUBERNETES_VERSION": "1.21.5",
+  "ROUTING_TYPE": "loadBalancer", // loadBalancer, managedNATGateway, userAssignedNATGateway, userDefinedRouting
+  "ADMIN_ID_AAD": "admin@example.com",
+  "NETWORK_PLUGIN": "azure", // azure, kubenet, none
+  "VNET_SUBNET_CIDR": "10.0.0.0/24",
+  "VNET_NAME": "test-vnet",
+  "VNET_RG": "test-vnet-rg",
+  "SUBNET_NAME": "test-subnet",
+  "RESOURCEID": "msi-identity-id", // User defined managed identity :shipit:
+  "SYSTEM_REPLICAS": 3, // of nodes in a pool
+  "SYSTEM_POOL_NAME": "system-pool",
+  "SYSTEM_SKU": "Standard_DS2_v2",
+  "SYSTEM_MAX_POD": 30,
+  "SYSTEM_OS_DISK": "StandardSSD_LRS",
+  "SYSTEM_MAX_SIZE_SCALING": 5,
+  "SYSTEM_MIN_SIZE_SCALING": 1,
+  "SYSTEM_KEY_USER_POOL1": "key1",
+  "SYSTEM_VALUE_USER_POOL1": "value1",
+  "USER_REPLICAS": 2,
+  "USER_POOL_NAME": "user-pool",
+  "USER_SKU": "Standard_DS2_v2",
+  "USER_MAX_POD": 30,
+  "USER_OS_DISK": "StandardSSD_LRS",
+  "USER_MAX_SIZE_SCALING": 5,
+  "USER_MIN_SIZE_SCALING": 1,
+  "USER_KEY_USER_POOL1": "key2",
+  "USER_VALUE_USER_POOL1": "value2",
+  "CLIENT_ID": "client-id-example",
+  "TENANT_ID": "tenant-id-example"
+}
+
+
+
 # GitHub Actions Workflow: Test
 
 This workflow is triggered on pushes to the `test` branch for changes in JSON files located in the `AKS/Input` directory.
